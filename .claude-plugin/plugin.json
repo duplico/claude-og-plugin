@@ -1,0 +1,11 @@
+{
+  "name": "og",
+  "version": "0.1.0",
+  "description": "George's portable Claude Code orchestrator: generic agents, skills, hooks, and bootstrap slash commands for any repo.",
+  "author": {
+    "name": "George Louthan",
+    "email": "duplico@dupli.co"
+  },
+  "homepage": "https://github.com/duplico/claude-og-plugin",
+  "repository": "https://github.com/duplico/claude-og-plugin"
+}
