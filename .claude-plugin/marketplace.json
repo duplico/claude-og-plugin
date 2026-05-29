@@ -1,0 +1,21 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "duplico",
+  "description": "George's personal Claude Code plugins.",
+  "owner": {
+    "name": "George Louthan",
+    "email": "duplico@dupli.co"
+  },
+  "plugins": [
+    {
+      "name": "og",
+      "description": "Portable orchestrator: generic agents, skills, guard hooks, and /og:orchestrate + /og:orchestrate-init slash commands for any repo.",
+      "author": {
+        "name": "George Louthan"
+      },
+      "category": "workflow",
+      "source": "./",
+      "homepage": "https://github.com/duplico/claude-og-plugin"
+    }
+  ]
+}
