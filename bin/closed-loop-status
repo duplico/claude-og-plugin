@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# closed-loop-status: Get PR state as structured JSON
+#
+# Returns PR metadata, labels, review status, and CI state for closed-loop decisions.
+#
+# Usage: closed-loop-status owner/repo PR_NUMBER
+#
+# Output includes:
+# - PR state (open/closed/merged)
+# - Whether ai:closed-loop label is present
+# - Count of unresolved review threads
+# - CI check status
+# - Latest comment timestamps
+#
+# Example:
+#   closed-loop-status SouthwestCCDC/magpie 42
+
+set -euo pipefail
+
+usage() {
+    echo "Usage: $0 owner/repo PR_NUMBER"
+    exit 1
+}
+
+if [[ $# -ne 2 ]]; then
+    usage
+fi
+
+REPO="$1"
+PR_NUMBER="$2"
+
+# Validate repo format
+if [[ ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
+    echo "Error: Repository must be in 'owner/repo' format" >&2
+    exit 1
+fi
+
+# Validate PR number
+if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+    echo "Error: PR number must be a positive integer" >&2
+    exit 1
+fi
+
+# Extract owner and repo name
+OWNER="${REPO%/*}"
+REPO_NAME="${REPO#*/}"
+
+# Fetch PR data via GraphQL (more efficient than multiple REST calls)
+QUERY='query($owner: String!, $repo: String!, $pr: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $pr) {
+      state
+      merged
+      mergeable
+      title
+      headRefName
+      baseRefName
+      labels(first: 20) {
+        nodes { name }
+      }
+      reviewThreads(first: 100) {
+        nodes {
+          isResolved
+          isOutdated
+        }
+      }
+      comments(last: 5, orderBy: {field: UPDATED_AT, direction: DESC}) {
+        nodes {
+          createdAt
+          author { login }
+          body
+        }
+      }
+      commits(last: 1) {
+        nodes {
+          commit {
+            statusCheckRollup {
+              state
+            }
+          }
+        }
+      }
+    }
+  }
+}'
+
+# Execute query
+RESULT=$(cat << EOF | gh api graphql --input -
+{
+  "query": "$(echo "$QUERY" | tr '\n' ' ' | sed 's/"/\\"/g')",
+  "variables": { "owner": "${OWNER}", "repo": "${REPO_NAME}", "pr": ${PR_NUMBER} }
+}
+EOF
+)
+
+# Check for errors
+if echo "$RESULT" | jq -e '.errors' > /dev/null 2>&1; then
+    echo "Error fetching PR data:" >&2
+    echo "$RESULT" | jq '.errors' >&2
+    exit 1
+fi
+
+# Extract and format data
+PR_DATA=$(echo "$RESULT" | jq '.data.repository.pullRequest')
+
+# Calculate derived fields
+LABELS=$(echo "$PR_DATA" | jq '[.labels.nodes[].name]')
+HAS_CLOSED_LOOP_LABEL=$(echo "$LABELS" | jq 'any(. == "ai:closed-loop")')
+
+# Count unresolved, non-outdated review threads
+UNRESOLVED_THREADS=$(echo "$PR_DATA" | jq '[.reviewThreads.nodes[] | select(.isResolved == false and .isOutdated == false)] | length')
+
+# Get CI status
+CI_STATE=$(echo "$PR_DATA" | jq -r '.commits.nodes[0].commit.statusCheckRollup.state // "UNKNOWN"')
+
+# Get latest comment info
+LATEST_COMMENT=$(echo "$PR_DATA" | jq '.comments.nodes[0] // null')
+LATEST_COMMENT_AT=$(echo "$LATEST_COMMENT" | jq -r '.createdAt // "null"')
+LATEST_COMMENT_AUTHOR=$(echo "$LATEST_COMMENT" | jq -r '.author.login // "null"')
+
+# Check if latest comment is from AI (has our markers)
+LATEST_IS_AI="false"
+if echo "$LATEST_COMMENT" | jq -e '.body' > /dev/null 2>&1; then
+    BODY=$(echo "$LATEST_COMMENT" | jq -r '.body // ""')
+    if [[ "$BODY" == *"<!-- AI:closed-loop"* ]] || [[ "$BODY" == *"(AI-generated via Claude Code"* ]]; then
+        LATEST_IS_AI="true"
+    fi
+fi
+
+# Build output JSON
+jq -n \
+    --arg repo "$REPO" \
+    --argjson pr "$PR_NUMBER" \
+    --arg state "$(echo "$PR_DATA" | jq -r '.state')" \
+    --argjson merged "$(echo "$PR_DATA" | jq '.merged')" \
+    --arg mergeable "$(echo "$PR_DATA" | jq -r '.mergeable // "UNKNOWN"')" \
+    --arg title "$(echo "$PR_DATA" | jq -r '.title')" \
+    --arg head "$(echo "$PR_DATA" | jq -r '.headRefName')" \
+    --arg base "$(echo "$PR_DATA" | jq -r '.baseRefName')" \
+    --argjson labels "$LABELS" \
+    --argjson has_closed_loop "$HAS_CLOSED_LOOP_LABEL" \
+    --argjson unresolved_threads "$UNRESOLVED_THREADS" \
+    --arg ci_state "$CI_STATE" \
+    --arg latest_comment_at "$LATEST_COMMENT_AT" \
+    --arg latest_comment_author "$LATEST_COMMENT_AUTHOR" \
+    --argjson latest_is_ai "$LATEST_IS_AI" \
+    '{
+        repo: $repo,
+        pr: $pr,
+        state: $state,
+        merged: $merged,
+        mergeable: $mergeable,
+        title: $title,
+        head_branch: $head,
+        base_branch: $base,
+        labels: $labels,
+        has_closed_loop_label: $has_closed_loop,
+        unresolved_review_threads: $unresolved_threads,
+        ci_state: $ci_state,
+        latest_comment: {
+            at: $latest_comment_at,
+            author: $latest_comment_author,
+            is_ai: $latest_is_ai
+        }
+    }'

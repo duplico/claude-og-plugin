@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# closed-loop-check-human: Find human responses since a timestamp
+#
+# Fetches PR comments and filters out AI-generated ones to find human responses.
+# Since all comments appear from the same OAuth user (@duplico), we filter by content:
+# - SKIP comments containing <!-- AI:closed-loop (session marker)
+# - SKIP comments containing (AI-generated via Claude Code (disclosure)
+# - RETURN comments that have neither - these are human responses
+#
+# Usage: closed-loop-check-human owner/repo PR_NUMBER [since_timestamp]
+#
+# Arguments:
+#   owner/repo        Repository in owner/repo format
+#   PR_NUMBER         Pull request number
+#   since_timestamp   ISO 8601 timestamp (optional, default: 24 hours ago)
+#
+# Output:
+#   JSON with human_responded boolean and array of human comments
+#
+# Example:
+#   closed-loop-check-human SouthwestCCDC/magpie 42
+#   closed-loop-check-human SouthwestCCDC/magpie 42 "2026-01-29T15:30:00Z"
+
+set -euo pipefail
+
+usage() {
+    echo "Usage: $0 owner/repo PR_NUMBER [since_timestamp]"
+    exit 1
+}
+
+if [[ $# -lt 2 ]]; then
+    usage
+fi
+
+REPO="$1"
+PR_NUMBER="$2"
+SINCE_TS="${3:-}"
+
+# Validate repo format
+if [[ ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
+    echo "Error: Repository must be in 'owner/repo' format" >&2
+    exit 1
+fi
+
+# Validate PR number
+if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+    echo "Error: PR number must be a positive integer" >&2
+    exit 1
+fi
+
+# Default to 24 hours ago if no timestamp provided
+if [[ -z "$SINCE_TS" ]]; then
+    if date --version 2>/dev/null | grep -q GNU; then
+        # GNU date
+        SINCE_TS=$(date -u -d "24 hours ago" +"%Y-%m-%dT%H:%M:%SZ")
+    else
+        # BSD date (macOS)
+        SINCE_TS=$(date -u -v-24H +"%Y-%m-%dT%H:%M:%SZ")
+    fi
+fi
+
+# Extract owner and repo name
+OWNER="${REPO%/*}"
+REPO_NAME="${REPO#*/}"
+
+# Fetch comments via GraphQL
+QUERY='query($owner: String!, $repo: String!, $pr: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $pr) {
+      comments(first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
+        nodes {
+          id
+          databaseId
+          body
+          createdAt
+          url
+          author {
+            login
+          }
+        }
+      }
+    }
+  }
+}'
+
+RESULT=$(cat << EOF | gh api graphql --input -
+{
+  "query": "$(echo "$QUERY" | tr '\n' ' ' | sed 's/"/\\"/g')",
+  "variables": { "owner": "${OWNER}", "repo": "${REPO_NAME}", "pr": ${PR_NUMBER} }
+}
+EOF
+)
+
+# Check for errors
+if echo "$RESULT" | jq -e '.errors' > /dev/null 2>&1; then
+    echo "Error fetching PR comments:" >&2
+    echo "$RESULT" | jq '.errors' >&2
+    exit 1
+fi
+
+# Filter comments:
+# 1. After since_timestamp
+# 2. NOT containing AI markers
+HUMAN_COMMENTS=$(echo "$RESULT" | jq --arg since "$SINCE_TS" '
+    .data.repository.pullRequest.comments.nodes
+    | map(select(
+        .createdAt > $since
+        and (.body | contains("<!-- AI:closed-loop") | not)
+        and (.body | contains("(AI-generated via Claude Code") | not)
+    ))
+    | map({
+        id: .databaseId,
+        author: .author.login,
+        created_at: .createdAt,
+        url: .url,
+        body: (.body | split("\n")[0:3] | join("\n") | if length > 200 then .[0:200] + "..." else . end)
+    })
+')
+
+# Count human responses
+HUMAN_COUNT=$(echo "$HUMAN_COMMENTS" | jq 'length')
+HUMAN_RESPONDED="false"
+if [[ "$HUMAN_COUNT" -gt 0 ]]; then
+    HUMAN_RESPONDED="true"
+fi
+
+# Output result
+jq -n \
+    --arg repo "$REPO" \
+    --argjson pr "$PR_NUMBER" \
+    --arg since "$SINCE_TS" \
+    --argjson human_responded "$HUMAN_RESPONDED" \
+    --argjson count "$HUMAN_COUNT" \
+    --argjson comments "$HUMAN_COMMENTS" \
+    '{
+        repo: $repo,
+        pr: $pr,
+        since: $since,
+        human_responded: $human_responded,
+        human_comment_count: $count,
+        human_comments: $comments
+    }'

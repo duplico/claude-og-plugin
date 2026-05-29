@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+# closed-loop-escalate: Post AWAITING_HUMAN escalation comment
+#
+# Posts a structured escalation comment that:
+# - Includes <!-- AWAITING_HUMAN: reason --> marker
+# - Includes AI session marker for filtering
+# - Tags @duplico for notification
+# - Includes proper AI disclosure
+#
+# Usage: closed-loop-escalate owner/repo PR_NUMBER REASON "message" [options]
+#
+# REASON must be one of:
+#   not_converging    - Issues not decreasing round-over-round
+#   circular_feedback - Same issue appears repeatedly or A->B->A
+#   design_decision   - Category C items requiring human decision
+#   round_limit       - Configured round limit reached
+#
+# Options:
+#   --session UUID    Session UUID for marker (required if continuing session)
+#   --model MODEL     Model name for disclosure (default: "Opus 4.7")
+#   --round N         Current round number for context
+#   --history JSON    Round history as JSON array for summary table
+#
+# Example:
+#   closed-loop-escalate SouthwestCCDC/magpie 42 design_decision "Architecture change needed" \
+#     --session abc-123 --round 2
+
+set -euo pipefail
+
+usage() {
+    cat << 'EOF'
+Usage: closed-loop-escalate owner/repo PR_NUMBER REASON "message" [options]
+
+REASON must be one of:
+  not_converging    - Issues not decreasing round-over-round
+  circular_feedback - Same issue appears repeatedly or A->B->A
+  design_decision   - Category C items requiring human decision
+  round_limit       - Configured round limit reached
+
+Options:
+  --session UUID    Session UUID for marker
+  --model MODEL     Model name for disclosure (default: "Opus 4.7")
+  --round N         Current round number
+  --history JSON    Round history as JSON array
+
+Example:
+  closed-loop-escalate SouthwestCCDC/magpie 42 design_decision "Need decision on API design"
+EOF
+    exit 1
+}
+
+# Parse arguments
+if [[ $# -lt 4 ]]; then
+    usage
+fi
+
+REPO="$1"
+PR_NUMBER="$2"
+REASON="$3"
+MESSAGE="$4"
+shift 4
+
+# Defaults
+SESSION_UUID=""
+MODEL="Opus 4.7"
+ROUND=""
+HISTORY=""
+
+# Parse options
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --session)
+            SESSION_UUID="$2"
+            shift 2
+            ;;
+        --model)
+            MODEL="$2"
+            shift 2
+            ;;
+        --round)
+            ROUND="$2"
+            shift 2
+            ;;
+        --history)
+            HISTORY="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            usage
+            ;;
+    esac
+done
+
+# Validate repo format
+if [[ ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
+    echo "Error: Repository must be in 'owner/repo' format" >&2
+    exit 1
+fi
+
+# Validate PR number
+if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+    echo "Error: PR number must be a positive integer" >&2
+    exit 1
+fi
+
+# Validate reason
+case "$REASON" in
+    not_converging|circular_feedback|design_decision|round_limit)
+        ;;
+    *)
+        echo "Error: Invalid reason '$REASON'" >&2
+        echo "Must be one of: not_converging, circular_feedback, design_decision, round_limit" >&2
+        exit 1
+        ;;
+esac
+
+# Generate session UUID if not provided
+if [[ -z "$SESSION_UUID" ]]; then
+    SESSION_UUID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
+fi
+
+# Map reason to human-readable description
+case "$REASON" in
+    not_converging)
+        REASON_DESC="Issues are not decreasing round-over-round"
+        ;;
+    circular_feedback)
+        REASON_DESC="Circular feedback detected (same issues recurring or reverting changes)"
+        ;;
+    design_decision)
+        REASON_DESC="Design decision required (Category C items present)"
+        ;;
+    round_limit)
+        REASON_DESC="Round limit reached"
+        ;;
+esac
+
+# Build history table if provided
+HISTORY_TABLE=""
+if [[ -n "$HISTORY" ]]; then
+    HISTORY_TABLE="
+**Review history**:
+| Round | Comments | Addressed | Remaining |
+|-------|----------|-----------|-----------|"
+
+    # Parse JSON history and build table rows
+    while IFS= read -r row; do
+        HISTORY_TABLE="${HISTORY_TABLE}
+${row}"
+    done < <(echo "$HISTORY" | jq -r '.[] | "| \(.round) | \(.comments) | \(.addressed) | \(.remaining) |"')
+fi
+
+# Build round info if provided
+ROUND_INFO=""
+if [[ -n "$ROUND" ]]; then
+    ROUND_INFO="**Current round**: ${ROUND}
+
+"
+fi
+
+# Construct escalation comment
+FULL_COMMENT="<!-- AI:closed-loop:${SESSION_UUID} -->
+<!-- AWAITING_HUMAN: ${REASON} -->
+
+## Agent Paused - Human Input Required
+
+**Reason**: ${REASON_DESC}
+
+${ROUND_INFO}${MESSAGE}
+${HISTORY_TABLE}
+
+@duplico - Please respond when ready to continue.
+
+(AI-generated via Claude Code w/ ${MODEL})"
+
+# Post comment
+gh pr comment "${PR_NUMBER}" --repo "${REPO}" --body "${FULL_COMMENT}"
+
+# Output confirmation
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+cat << EOF
+{
+  "posted": true,
+  "repo": "${REPO}",
+  "pr": ${PR_NUMBER},
+  "reason": "${REASON}",
+  "session_uuid": "${SESSION_UUID}",
+  "escalated_at": "${TIMESTAMP}"
+}
+EOF

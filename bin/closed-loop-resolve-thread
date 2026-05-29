@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+# closed-loop-resolve-thread: Resolve a PR review thread via GraphQL
+#
+# Marks a review conversation as resolved (the "Resolve conversation" button).
+# Use after posting a fix reply to indicate the feedback has been addressed.
+#
+# Usage: closed-loop-resolve-thread owner/repo PR_NUMBER THREAD_ID
+#        closed-loop-resolve-thread owner/repo PR_NUMBER --all
+#
+# Arguments:
+#   owner/repo    Repository in owner/repo format
+#   PR_NUMBER     Pull request number
+#   THREAD_ID     Thread ID (format: PRRT_kwDO...) OR --all to resolve all
+#
+# Options:
+#   --all         Resolve ALL unresolved threads (CAUTION: human use only, not for agents)
+#   --dry-run     Show what would be resolved without doing it
+#
+# WARNING: Agents should resolve threads by specific ID, not --all.
+# Using --all in automation risks resolving threads opened after the agent's
+# last check, hiding new feedback from humans.
+#
+# Examples:
+#   closed-loop-resolve-thread SouthwestCCDC/magpie 42 PRRT_kwDOABC123
+#   closed-loop-resolve-thread SouthwestCCDC/magpie 42 --all
+#   closed-loop-resolve-thread SouthwestCCDC/magpie 42 --all --dry-run
+
+set -euo pipefail
+
+usage() {
+    echo "Usage: $0 owner/repo PR_NUMBER THREAD_ID"
+    echo "       $0 owner/repo PR_NUMBER --all [--dry-run]"
+    exit 1
+}
+
+# Parse arguments
+if [[ $# -lt 3 ]]; then
+    usage
+fi
+
+REPO="$1"
+PR_NUMBER="$2"
+THREAD_ID="$3"
+shift 3
+
+DRY_RUN=false
+
+# Parse remaining options
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            usage
+            ;;
+    esac
+done
+
+# Validate repo format
+if [[ ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
+    echo "Error: Repository must be in 'owner/repo' format" >&2
+    exit 1
+fi
+
+OWNER="${REPO%%/*}"
+REPO_NAME="${REPO##*/}"
+
+# Validate PR number
+if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+    echo "Error: PR number must be a positive integer" >&2
+    exit 1
+fi
+
+# Function to resolve a single thread
+resolve_thread() {
+    local thread_id="$1"
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo "[dry-run] Would resolve thread: $thread_id"
+        return 0
+    fi
+
+    local result
+    result=$(gh api graphql -f query='
+        mutation($threadId: ID!) {
+            resolveReviewThread(input: {threadId: $threadId}) {
+                thread {
+                    id
+                    isResolved
+                }
+            }
+        }
+    ' -f threadId="$thread_id" 2>&1) || {
+        echo "Error resolving thread $thread_id: $result" >&2
+        return 1
+    }
+
+    # Check if resolution was successful
+    local is_resolved
+    is_resolved=$(echo "$result" | jq -r '.data.resolveReviewThread.thread.isResolved // "error"')
+
+    if [[ "$is_resolved" == "true" ]]; then
+        echo "Resolved thread: $thread_id"
+        return 0
+    else
+        echo "Failed to resolve thread $thread_id: $result" >&2
+        return 1
+    fi
+}
+
+# Function to get all unresolved thread IDs
+get_unresolved_threads() {
+    gh api graphql -f query='
+        query($owner: String!, $repo: String!, $pr: Int!) {
+            repository(owner: $owner, name: $repo) {
+                pullRequest(number: $pr) {
+                    reviewThreads(first: 100) {
+                        nodes {
+                            id
+                            isResolved
+                            isOutdated
+                            path
+                            line
+                        }
+                    }
+                }
+            }
+        }
+    ' -f owner="$OWNER" -f repo="$REPO_NAME" -F pr="$PR_NUMBER" \
+    | jq -r '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .id'
+}
+
+# Main logic
+if [[ "$THREAD_ID" == "--all" ]]; then
+    echo "Finding unresolved threads on ${REPO}#${PR_NUMBER}..."
+
+    THREADS=$(get_unresolved_threads)
+
+    if [[ -z "$THREADS" ]]; then
+        echo "No unresolved threads found."
+        exit 0
+    fi
+
+    COUNT=$(echo "$THREADS" | wc -l)
+    echo "Found $COUNT unresolved thread(s)"
+
+    RESOLVED=0
+    FAILED=0
+
+    while IFS= read -r thread_id; do
+        if resolve_thread "$thread_id"; then
+            RESOLVED=$((RESOLVED + 1))
+        else
+            FAILED=$((FAILED + 1))
+        fi
+    done <<< "$THREADS"
+
+    echo "---"
+    echo "Resolved: $RESOLVED, Failed: $FAILED"
+
+    if [[ $FAILED -gt 0 ]]; then
+        exit 1
+    fi
+else
+    # Validate thread ID format
+    if [[ ! "$THREAD_ID" =~ ^PRRT_ ]]; then
+        echo "Warning: Thread ID doesn't match expected format (PRRT_...)" >&2
+    fi
+
+    resolve_thread "$THREAD_ID"
+fi

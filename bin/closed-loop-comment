@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# closed-loop-comment: Post a PR comment with AI markers and disclosure
+#
+# All comments include:
+# - <!-- AI:closed-loop:{session-uuid} --> marker for filtering
+# - AI disclosure line at the end
+#
+# Usage: closed-loop-comment owner/repo PR_NUMBER "message" [--session UUID] [--model MODEL]
+#
+# Options:
+#   --session UUID    Session UUID for marker (default: generates new one)
+#   --model MODEL     Model name for disclosure (default: "Opus 4.7")
+#
+# Example:
+#   closed-loop-comment SouthwestCCDC/magpie 42 "Fixed the issue" --session abc-123
+#   closed-loop-comment SouthwestCCDC/magpie 42 "Ready for review" --model "Sonnet 4"
+
+set -euo pipefail
+
+usage() {
+    echo "Usage: $0 owner/repo PR_NUMBER \"message\" [--session UUID] [--model MODEL]"
+    exit 1
+}
+
+# Parse arguments
+if [[ $# -lt 3 ]]; then
+    usage
+fi
+
+REPO="$1"
+PR_NUMBER="$2"
+MESSAGE="$3"
+shift 3
+
+# Defaults
+SESSION_UUID=""
+MODEL="Opus 4.7"
+
+# Parse options
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --session)
+            SESSION_UUID="$2"
+            shift 2
+            ;;
+        --model)
+            MODEL="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            usage
+            ;;
+    esac
+done
+
+# Validate repo format
+if [[ ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
+    echo "Error: Repository must be in 'owner/repo' format" >&2
+    exit 1
+fi
+
+# Validate PR number
+if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+    echo "Error: PR number must be a positive integer" >&2
+    exit 1
+fi
+
+# Generate session UUID if not provided
+if [[ -z "$SESSION_UUID" ]]; then
+    SESSION_UUID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
+fi
+
+# Construct comment with markers
+FULL_COMMENT="<!-- AI:closed-loop:${SESSION_UUID} -->
+
+${MESSAGE}
+
+(AI-generated via Claude Code w/ ${MODEL})"
+
+# Post comment
+gh pr comment "${PR_NUMBER}" --repo "${REPO}" --body "${FULL_COMMENT}"
+
+# Output confirmation
+echo "Posted comment to ${REPO}#${PR_NUMBER} with session marker ${SESSION_UUID}"

@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# closed-loop-init: Initialize a closed-loop PR review session
+#
+# Creates local session directory and ensures ai:closed-loop label is on the PR.
+# Outputs session UUID and config path for orchestrator use.
+#
+# Usage: closed-loop-init owner/repo PR_NUMBER [options]
+#
+# Options:
+#   --round-limit N     Maximum rounds before escalation (default: 4)
+#   --mode MODE         "attended" or "unattended" (default: unattended)
+#
+# Example:
+#   closed-loop-init SouthwestCCDC/magpie 42
+#   closed-loop-init SouthwestCCDC/magpie 42 --round-limit 6 --mode attended
+
+set -euo pipefail
+
+usage() {
+    echo "Usage: $0 owner/repo PR_NUMBER [--round-limit N] [--mode attended|unattended]"
+    exit 1
+}
+
+# Parse arguments
+if [[ $# -lt 2 ]]; then
+    usage
+fi
+
+REPO="$1"
+PR_NUMBER="$2"
+shift 2
+
+# Defaults
+ROUND_LIMIT=4
+MODE="unattended"
+
+# Parse options
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --round-limit)
+            ROUND_LIMIT="$2"
+            shift 2
+            ;;
+        --mode)
+            MODE="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            usage
+            ;;
+    esac
+done
+
+# Validate repo format
+if [[ ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
+    echo "Error: Repository must be in 'owner/repo' format" >&2
+    exit 1
+fi
+
+# Validate PR number
+if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+    echo "Error: PR number must be a positive integer" >&2
+    exit 1
+fi
+
+# Validate mode
+if [[ "$MODE" != "attended" && "$MODE" != "unattended" ]]; then
+    echo "Error: Mode must be 'attended' or 'unattended'" >&2
+    exit 1
+fi
+
+# Generate session UUID
+SESSION_UUID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
+
+# Session path - use .ai/scratch relative to workspace root
+WORKSPACE_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+SESSION_PATH="${WORKSPACE_ROOT}/.ai/scratch/closed-loop/${SESSION_UUID}"
+
+# Create session directory
+mkdir -p "${SESSION_PATH}/rounds"
+
+# Get current timestamp
+STARTED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Write config.json
+cat > "${SESSION_PATH}/config.json" << EOF
+{
+  "session_uuid": "${SESSION_UUID}",
+  "repo": "${REPO}",
+  "pr": ${PR_NUMBER},
+  "mode": "${MODE}",
+  "round_limit": ${ROUND_LIMIT},
+  "started_at": "${STARTED_AT}",
+  "current_round": 0
+}
+EOF
+
+# Ensure ai:closed-loop label exists on PR
+# This is idempotent - if label already exists, gh will succeed
+if ! gh pr edit "${PR_NUMBER}" --repo "${REPO}" --add-label "ai:closed-loop" 2>/dev/null; then
+    # Label might not exist in repo - try to create it first
+    gh label create "ai:closed-loop" --repo "${REPO}" --description "PR is in AI closed-loop review" --color "7B42BC" 2>/dev/null || true
+    gh pr edit "${PR_NUMBER}" --repo "${REPO}" --add-label "ai:closed-loop" 2>/dev/null || true
+fi
+
+# Output result as JSON for easy parsing
+cat << EOF
+{
+  "session_uuid": "${SESSION_UUID}",
+  "session_path": "${SESSION_PATH}",
+  "config_file": "${SESSION_PATH}/config.json",
+  "repo": "${REPO}",
+  "pr": ${PR_NUMBER},
+  "started_at": "${STARTED_AT}"
+}
+EOF
