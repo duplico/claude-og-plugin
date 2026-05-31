@@ -1,0 +1,190 @@
+#!/usr/bin/env python3
+"""og-sync — apply plugin updates down into the current project's .claude/ files.
+
+Detects and (with --fix) repairs two kinds of drift in the project orchestrator
+overlay and project agents:
+
+  1. Bare references to plugin-shipped agents/skills that should be `og:`-prefixed
+     (e.g. `pr-response-protocol` in a `skills:` list → `og:pr-response-protocol`).
+  2. Missing rows for shared plugin utility agents in the overlay's agent table.
+
+Scans only structured contexts to avoid false positives on common words:
+   - `skills:` preload list entries  (yaml: `  - <name>`)
+   - markdown table cells           (`| <name> |`)
+   - inline backticked references   (`` `<name>` ``)
+
+Usage:
+  og-sync               # report drift, exit 1 if any
+  og-sync --fix         # apply fixes in place
+  og-sync --root PATH   # scan a different repo root (default: cwd)
+"""
+
+import argparse
+import re
+import sys
+from pathlib import Path
+
+# --- canonical plugin inventory (update when the plugin gains components) ---
+PLUGIN_AGENTS = [
+    "orchestrator-developer", "orchestrator-reviewer", "orchestrator-tester",
+    "closed-loop-runner", "editor", "just-expert", "web-doc-searcher",
+]
+PLUGIN_SKILLS = [
+    "orchestrate", "orchestrate-init", "check-wsl", "sync",
+    "pr-response-protocol", "closed-loop-helpers",
+]
+ALL_NAMES = PLUGIN_AGENTS + PLUGIN_SKILLS
+
+# Rows that should appear in every project overlay's agent table.
+SHARED_ROWS = [
+    "| og:editor | formatting / linting / style compliance |",
+    "| og:web-doc-searcher | external documentation lookup |",
+    "| og:just-expert | justfile authoring and review |",
+    "| og:closed-loop-runner | full review→fix lifecycle for an issue/PR (opt-in) |",
+]
+
+
+def patterns_for(name: str):
+    """Three (regex, replacement) pairs covering the structured contexts."""
+    n = re.escape(name)
+    return [
+        # YAML skills list entry:  "  - <name>"  (whole line)
+        (re.compile(rf"^(?P<pre>\s*-\s*){n}(?P<post>\s*)$", re.M), rf"\g<pre>og:{name}\g<post>"),
+        # markdown table cell:     "| <name> |"
+        (re.compile(rf"(?P<pre>\|\s*){n}(?P<post>\s*\|)"),         rf"\g<pre>og:{name}\g<post>"),
+        # inline backticked ref:   "`<name>`"
+        (re.compile(rf"(?P<pre>`){n}(?P<post>`)"),                 rf"\g<pre>og:{name}\g<post>"),
+    ]
+
+
+def find_drift(text: str):
+    """Yield (lineno, snippet, name, context) for each bare reference."""
+    drift = []
+    for name in ALL_NAMES:
+        for pattern, _ in patterns_for(name):
+            for m in pattern.finditer(text):
+                lineno = text.count("\n", 0, m.start()) + 1
+                snippet = text.splitlines()[lineno - 1].strip()
+                drift.append((lineno, snippet, name))
+    drift.sort()
+    return drift
+
+
+def fix_drift(text: str) -> tuple[str, int]:
+    """Apply prefix fixes; return (new_text, count)."""
+    count = 0
+    for name in ALL_NAMES:
+        for pattern, repl in patterns_for(name):
+            text, n = pattern.subn(repl, text)
+            count += n
+    return text, count
+
+
+def missing_shared_rows(text: str) -> list[str]:
+    """Which shared-trio (+ closed-loop) rows are missing from the overlay?"""
+    out = []
+    for row in SHARED_ROWS:
+        # extract `og:NAME` from the row's first cell
+        m = re.match(r"\|\s*(og:[A-Za-z0-9_-]+)\s*\|", row)
+        if not m:
+            continue
+        if not re.search(rf"\b{re.escape(m.group(1))}\b", text):
+            out.append(row)
+    return out
+
+
+def insert_shared_rows(text: str, rows: list[str]) -> tuple[str, bool]:
+    """Append missing rows after the last existing `| og:` row in the file."""
+    if not rows:
+        return text, False
+    lines = text.splitlines(keepends=False)
+    last_idx = -1
+    for i, line in enumerate(lines):
+        if re.match(r"^\|\s*og:", line):
+            last_idx = i
+    if last_idx < 0:
+        return text, False  # can't find the table; leave for manual fix
+    for row in rows:
+        last_idx += 1
+        lines.insert(last_idx, row)
+    new_text = "\n".join(lines)
+    if text.endswith("\n"):
+        new_text += "\n"
+    return new_text, True
+
+
+def find_targets(root: Path):
+    overlays = sorted(root.glob(".claude/skills/*-orchestrator/SKILL.md"))
+    agents = sorted(root.glob(".claude/agents/*.md"))
+    return overlays, agents
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--fix", action="store_true", help="apply fixes in place (default: report only)")
+    ap.add_argument("--root", default=".", help="repo root (default: cwd)")
+    args = ap.parse_args()
+
+    root = Path(args.root).resolve()
+    overlays, agents = find_targets(root)
+
+    is_tty = sys.stdout.isatty()
+    G = "\033[32m" if is_tty else ""
+    Y = "\033[33m" if is_tty else ""
+    B = "\033[1m" if is_tty else ""
+    N = "\033[0m" if is_tty else ""
+    OK = f"{G}✓{N}"; WARN = f"{Y}!{N}"
+
+    if not overlays and not agents:
+        print(f"og-sync: no .claude/skills/*-orchestrator/ or .claude/agents/ under {root}")
+        print("  (nothing to sync — run /og:orchestrate-init first to scaffold one)")
+        return 0
+
+    print(f"{B}og-sync{N}  —  checking {len(overlays)} overlay(s) + {len(agents)} project agent(s) under {root}")
+    print()
+
+    total_drift = 0
+    total_fixed = 0
+    for path in overlays + agents:
+        rel = path.relative_to(root)
+        text = path.read_text()
+        drift = find_drift(text)
+        missing = missing_shared_rows(text) if path in overlays else []
+        if not drift and not missing:
+            print(f"  {OK} {rel}")
+            continue
+        print(f"  {WARN} {rel}")
+        for ln, snippet, name in drift[:8]:
+            print(f"      bare ref to plugin name `{name}`  (line {ln}): {snippet[:80]}")
+        if len(drift) > 8:
+            print(f"      ... and {len(drift)-8} more bare refs")
+        for row in missing:
+            print(f"      missing shared row: {row}")
+        total_drift += len(drift) + len(missing)
+
+        if args.fix:
+            new_text, n_fixed = fix_drift(text)
+            new_text, inserted = insert_shared_rows(new_text, missing)
+            if new_text != text:
+                path.write_text(new_text)
+                changes = []
+                if n_fixed:
+                    changes.append(f"{n_fixed} prefix fix(es)")
+                if inserted:
+                    changes.append(f"{len(missing)} row(s) inserted")
+                print(f"      {G}fixed{N}: {', '.join(changes)}")
+                total_fixed += n_fixed + (len(missing) if inserted else 0)
+
+    print()
+    if total_drift == 0:
+        print(f"{G}clean — no drift{N}")
+        return 0
+    if args.fix:
+        print(f"{G}applied {total_fixed} fix(es){N}  ({total_drift - total_fixed} item(s) need manual review)")
+        return 0
+    print(f"{Y}{total_drift} drift item(s){N} — re-run with --fix to apply")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -93,7 +93,11 @@ its universal-orchestrator-rules), then apply this project's specifics below.
 | og:orchestrator-developer (or <generated domain dev>) | implementation in worktrees |
 | og:orchestrator-reviewer | code review / comment triage |
 | og:orchestrator-tester   | tests |
-<...any generated domain agents...>
+| og:closed-loop-runner | full review→fix lifecycle for an issue/PR (opt-in) |
+| og:editor | formatting / linting / style compliance |
+| og:web-doc-searcher | external documentation lookup |
+| og:just-expert | justfile authoring and review |
+<...any generated project-local domain agents...>
 
 ## Repository layout
 <key directories and what lives in them>
