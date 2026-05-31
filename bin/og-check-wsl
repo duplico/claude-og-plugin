@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+# og-check-wsl: probe the WSL2/Windows interop surface and report which
+# notification + URL + clipboard paths are live on this machine.
+#
+# Usage: og-check-wsl [--test-notify]
+#
+# --test-notify   also send a real desktop notification through each available
+#                 path so you can confirm the toast actually appears on Windows.
+
+set -u
+
+TEST_NOTIFY=0
+for arg in "$@"; do
+    case "$arg" in
+        --test-notify) TEST_NOTIFY=1 ;;
+        -h|--help)
+            sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        *) echo "unknown flag: $arg" >&2; exit 2 ;;
+    esac
+done
+
+# Color helpers (TTY only)
+if [ -t 1 ]; then
+    G=$'\033[32m'; Y=$'\033[33m'; R=$'\033[31m'; B=$'\033[1m'; N=$'\033[0m'
+else
+    G=""; Y=""; R=""; B=""; N=""
+fi
+OK="${G}✓${N}"; WARN="${Y}!${N}"; FAIL="${R}✗${N}"
+
+# --- probes -----------------------------------------------------------------
+
+is_wsl() { grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; }
+have()   { command -v "$1" >/dev/null 2>&1; }
+path_of(){ command -v "$1" 2>/dev/null; }
+
+burnt_toast_present() {
+    have powershell.exe || return 1
+    out=$(powershell.exe -NoProfile -NonInteractive -Command \
+        "if (Get-Module -ListAvailable -Name BurntToast) { 'yes' } else { 'no' }" \
+        2>/dev/null | tr -d '\r\n ')
+    [ "$out" = "yes" ]
+}
+
+# --- report -----------------------------------------------------------------
+
+echo "${B}og-check-wsl${N}  —  WSL2 / Windows interop diagnostic"
+echo "================================================================"
+
+# WSL detection
+if is_wsl; then
+    KERN=$(uname -r)
+    echo "  $OK  WSL detected           kernel $KERN"
+else
+    echo "  $WARN  not WSL                this script is most useful in WSL2"
+fi
+
+# WSLg (Win11 graphical bridge)
+if [ -d /mnt/wslg ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    echo "  $OK  WSLg                   /mnt/wslg present (notify-send + GUI apps work)"
+else
+    echo "  $WARN  WSLg                   not detected — notify-send may not surface a toast"
+fi
+
+# systemd
+if pidof systemd >/dev/null 2>&1 || \
+   systemctl is-system-running >/dev/null 2>&1; then
+    echo "  $OK  systemd                running"
+else
+    echo "  $WARN  systemd                not running — enable in /etc/wsl.conf if you need sshd/services"
+fi
+
+# sshd (relevant for Desktop app SSH-to-WSL2)
+if ss -tlnp 2>/dev/null | grep -q ':22[[:space:]]'; then
+    echo "  $OK  sshd                   listening on :22 (Desktop app can attach)"
+else
+    echo "  $WARN  sshd                   not listening on :22 — Desktop app SSH mode won't reach you"
+fi
+
+# Notification path
+echo
+echo "${B}Notification path${N} (used by the plugin's notify_wsl hook)"
+
+if have notify-send; then
+    echo "  $OK  notify-send            $(path_of notify-send)  (primary, via WSLg)"
+    NOTIFY_PRIMARY="notify-send"
+else
+    echo "  $FAIL  notify-send            not installed — \`sudo apt install libnotify-bin\`"
+    NOTIFY_PRIMARY=""
+fi
+
+if have powershell.exe; then
+    echo "  $OK  powershell.exe         $(path_of powershell.exe)  (fallback)"
+    if burnt_toast_present; then
+        echo "  $OK  BurntToast module      installed — modern toast UI"
+    else
+        echo "  $WARN  BurntToast module      not installed (System.Windows.Forms balloon used instead)"
+        echo "                            install: powershell.exe -c \"Install-Module BurntToast -Scope CurrentUser -Force\""
+    fi
+    [ -z "$NOTIFY_PRIMARY" ] && NOTIFY_PRIMARY="powershell.exe"
+else
+    echo "  $WARN  powershell.exe         not on PATH (Windows interop disabled?)"
+fi
+
+echo
+echo "${B}URL / browser${N} (Claude opens previews via cmd.exe /c start)"
+if have cmd.exe; then
+    echo "  $OK  cmd.exe                $(path_of cmd.exe)"
+else
+    echo "  $FAIL  cmd.exe                not on PATH — URL auto-open will fail"
+fi
+if have wslview; then
+    echo "  $OK  wslview                $(path_of wslview)  (alternative opener)"
+else
+    echo "  $WARN  wslview                not installed — install: \`sudo apt install wslu\` (optional)"
+fi
+
+echo
+echo "${B}Clipboard${N}"
+if have clip.exe; then
+    echo "  $OK  clip.exe               WSL → Windows clipboard"
+else
+    echo "  $WARN  clip.exe               not on PATH"
+fi
+if have powershell.exe; then
+    echo "  $OK  Windows → WSL          paste via terminal (WSL2 ≥ 2.0 unified clipboard)"
+fi
+
+echo
+echo "${B}Plugin hook resolution${N}"
+if [ -n "$NOTIFY_PRIMARY" ]; then
+    echo "  $OK  notify_wsl will use:   $NOTIFY_PRIMARY"
+else
+    echo "  $FAIL  notify_wsl will:       no-op (no working notifier on this machine)"
+fi
+
+# Live test
+if [ "$TEST_NOTIFY" = "1" ]; then
+    echo
+    echo "${B}Test notification${N} (--test-notify)"
+    SENT_ANY=0
+    if have notify-send; then
+        notify-send -a "og-check-wsl" "og-check-wsl" "notify-send path is working" 2>/dev/null \
+            && { echo "  $OK  sent via notify-send"; SENT_ANY=1; } \
+            || echo "  $FAIL  notify-send call failed"
+    fi
+    if have powershell.exe; then
+        powershell.exe -NoProfile -NonInteractive -Command "
+            if (Get-Module -ListAvailable -Name BurntToast) {
+                Import-Module BurntToast;
+                New-BurntToastNotification -Text 'og-check-wsl','PowerShell/BurntToast path is working'
+            } else {
+                Add-Type -AssemblyName System.Windows.Forms;
+                \$n = New-Object System.Windows.Forms.NotifyIcon;
+                \$n.Icon = [System.Drawing.SystemIcons]::Information;
+                \$n.Visible = \$true;
+                \$n.ShowBalloonTip(5000, 'og-check-wsl', 'PowerShell balloon path is working',
+                    [System.Windows.Forms.ToolTipIcon]::Info);
+                Start-Sleep -Seconds 6; \$n.Dispose()
+            }" >/dev/null 2>&1 \
+            && { echo "  $OK  sent via powershell.exe"; SENT_ANY=1; } \
+            || echo "  $FAIL  powershell.exe call failed"
+    fi
+    [ "$SENT_ANY" = "1" ] && echo "  (look for the toast on the Windows side)" \
+                          || echo "  (no notifier available to test)"
+fi
+
+echo
+echo "Run with --test-notify to send a real desktop toast through each path."
