@@ -57,13 +57,15 @@ fi
 
 | Agent | Use for |
 |---|---|
-| `orchestrator-developer` | Implement features / fix bugs in a worktree; open/update PRs |
-| `orchestrator-reviewer` | Adversarial code review; triage PR comments |
-| `orchestrator-tester` | Write/run tests; investigate failures |
-| `closed-loop-runner` | Full review→fix lifecycle for an issue/PR (opt-in) |
-| `editor` | Formatting / linting / style compliance |
-| `just-expert` | justfile authoring and review |
-| `web-doc-searcher` | Look up current external documentation |
+| `og:orchestrator-developer` | Implement features / fix bugs in a worktree; open/update PRs |
+| `og:orchestrator-reviewer` | Adversarial code review; triage PR comments |
+| `og:orchestrator-tester` | Write/run tests; investigate failures |
+| `og:closed-loop-runner` | Full review→fix lifecycle for an issue/PR (opt-in) |
+| `og:editor` | Formatting / linting / style compliance |
+| `og:just-expert` | justfile authoring and review |
+| `og:web-doc-searcher` | Look up current external documentation |
+
+When dispatching via the `Task` tool, use these exact `subagent_type` strings — the `og:` prefix is required because they're plugin-namespaced. Project agents (in `.claude/agents/`) are NOT namespaced and are referenced by bare name.
 
 **Project subagents** (from `.claude/agents/`, listed by the scan) override plugin agents of the same name and take precedence. Prefer them when present — they carry project-specific knowledge.
 
@@ -106,7 +108,7 @@ When dispatching a subagent, every task prompt should include: the goal and why;
 
 ## Closed-Loop Review (opt-in only)
 
-Do NOT auto-iterate review/fix cycles. Only enter closed-loop mode when the user explicitly asks ("enter closed-loop on PR #N"). Then dispatch `closed-loop-runner` (see its preloaded `closed-loop-helpers` skill). Confirm round limit and attended/unattended mode via AskUserQuestion before starting.
+Do NOT auto-iterate review/fix cycles. Only enter closed-loop mode when the user explicitly asks ("enter closed-loop on PR #N"). Then dispatch `og:closed-loop-runner` (see its preloaded `og:closed-loop-helpers` skill). Confirm round limit and attended/unattended mode via AskUserQuestion before starting.
 
 ## Routines (recurring work)
 

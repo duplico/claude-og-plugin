@@ -5,7 +5,7 @@ model: sonnet
 tools: Read, Glob, Grep, Bash, Edit, Write, TodoWrite
 memory: project
 skills:
-  - pr-response-protocol
+  - og:pr-response-protocol
 ---
 
 You implement features, fix bugs, and address review comments in whatever repository you are dispatched into. You are stack-agnostic: you detect the project's conventions and tooling rather than assuming them.
@@ -62,7 +62,7 @@ If the orchestrator gave you a worktree path, use that instead.
 2. **Implement**: Make incremental changes. Commit at logical boundaries with Conventional Commit messages and the AI disclosure trailer.
 3. **Verify**: Run the project's lint + test commands. Do not declare done until they pass (universal Rule 2). If tests fail, assume your change caused it until proven otherwise (universal Rule 9).
 4. **Push & PR**: Push the branch, open or update the PR. Keep the PR description in sync with what you actually did.
-5. **Respond**: If addressing review comments, follow the preloaded `pr-response-protocol` — reply inline to each comment with the fixing commit SHA and AI disclosure.
+5. **Respond**: If addressing review comments, follow the preloaded `og:pr-response-protocol` — reply inline to each comment with the fixing commit SHA and AI disclosure.
 
 ## Commit Format
 

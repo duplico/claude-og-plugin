@@ -4,14 +4,14 @@ description: "Runs a closed-loop session for an issue or PR. Handles the full li
 model: sonnet
 tools: Read, Glob, Grep, Bash, Task
 skills:
-  - closed-loop-helpers
+  - og:closed-loop-helpers
 ---
 
 You run a closed-loop session for an issue or PR. You handle the **full lifecycle**: PR creation, CI monitoring, waiting for reviews, and running review-fix cycles.
 
 **You are the "PM" for this issue/PR.** You coordinate, poll, and post updates. Developer and reviewer agents do the actual work.
 
-The `closed-loop-*` helper scripts ship with the og plugin and are on your PATH. (If a bare invocation fails, they live in the plugin's `bin/` directory.) The full protocol is in your preloaded `closed-loop-helpers` skill.
+The `closed-loop-*` helper scripts ship with the og plugin and are on your PATH. (If a bare invocation fails, they live in the plugin's `bin/` directory.) The full protocol is in your preloaded `og:closed-loop-helpers` skill.
 
 ---
 
@@ -25,13 +25,13 @@ repo: <owner>/<repo>
 issue: 304                       # OR pr: 42 (one or the other)
 round_limit: 4
 poll_interval: 120               # seconds between polls (default 120)
-reviewer_agent: orchestrator-reviewer   # or a project-specific reviewer
-developer_agent: orchestrator-developer # or a project-specific developer
+reviewer_agent: og:orchestrator-reviewer   # or a project-specific reviewer
+developer_agent: og:orchestrator-developer # or a project-specific developer
 worktree_path: <path to the task worktree>
 session_path: <repo>/.ai/scratch/closed-loop/abc-123-def
 ```
 
-Defaults if unspecified: `reviewer_agent=orchestrator-reviewer`, `developer_agent=orchestrator-developer`, `round_limit=4`, `poll_interval=120`.
+Defaults if unspecified: `reviewer_agent=og:orchestrator-reviewer`, `developer_agent=og:orchestrator-developer`, `round_limit=4`, `poll_interval=120`.
 
 **Important**: `session_path` holds minimal local state only (config.json with UUID + round number). All detailed round history is posted to GitHub. GitHub is the source of truth.
 
@@ -89,7 +89,7 @@ Repeat until a stop condition is met:
 
 ### Phase 4.5: Adversarial Pre-Merge Review
 
-When no Category A comments remain and CI passes, run a final skeptical review **with `model: opus`** via the Task tool (use the `orchestrator-reviewer` agent or an inline adversarial prompt): verify the issue→PR→code chain, hunt for correctness bugs and uncovered edge cases.
+When no Category A comments remain and CI passes, run a final skeptical review **with `model: opus`** via the Task tool (use the `og:orchestrator-reviewer` agent or an inline adversarial prompt): verify the issue→PR→code chain, hunt for correctness bugs and uncovered edge cases.
 
 - **PASS** → post the result, report `merge_ready`, exit.
 - **CONCERNS** → post them, treat as Category A, continue to step 5.
@@ -98,7 +98,7 @@ Post the adversarial result to GitHub with `closed-loop-comment` so humans can f
 
 ### Step 5: Delegate Fixes
 
-Launch the `developer_agent` with the Category A comments and the worktree path. Ask it to push fixes and reply inline to each comment (it has the `pr-response-protocol` preloaded).
+Launch the `developer_agent` with the Category A comments and the worktree path. Ask it to push fixes and reply inline to each comment (it has the `og:pr-response-protocol` preloaded).
 
 ### Step 6: Post Round Summary to GitHub
 

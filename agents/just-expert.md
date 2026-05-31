@@ -637,7 +637,7 @@ _ensure-deps:
 - Questions about features released after v1.46.0
 - Uncertainty about exact behavior
 
-You MUST use the `web-doc-searcher` subagent via the Task tool to verify against the official documentation at https://just.systems/man/en/. Do not guess about undocumented features.
+You MUST use the `og:web-doc-searcher` subagent via the Task tool to verify against the official documentation at https://just.systems/man/en/. Do not guess about undocumented features.
 
 **Key v1.37.0+ features embedded here:**
 - v1.37.0: `style()` function, `&&`/`||` operators

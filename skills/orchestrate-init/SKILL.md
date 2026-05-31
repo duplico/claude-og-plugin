@@ -90,9 +90,9 @@ its universal-orchestrator-rules), then apply this project's specifics below.
 ## Subagents for this repo
 | Agent | Use for |
 |---|---|
-| orchestrator-developer (or <generated domain dev>) | implementation in worktrees |
-| orchestrator-reviewer | code review / comment triage |
-| orchestrator-tester   | tests |
+| og:orchestrator-developer (or <generated domain dev>) | implementation in worktrees |
+| og:orchestrator-reviewer | code review / comment triage |
+| og:orchestrator-tester   | tests |
 <...any generated domain agents...>
 
 ## Repository layout
@@ -156,7 +156,9 @@ Ensure these are ignored (append, don't duplicate):
 
 ### 4f. Domain agents (only if `--full` and the user chose some) → `.claude/agents/<name>.md`
 
-Base each on the plugin's `orchestrator-developer` (or `-reviewer`/`-tester`) and add stack-specific knowledge: the exact build/test commands, framework idioms, where things live, common pitfalls. Keep the worktree workflow and the structured-output block. Set `skills: [pr-response-protocol]` on developer-type agents.
+Base each on the plugin's `og:orchestrator-developer` (or `og:orchestrator-reviewer`/`og:orchestrator-tester`) and add stack-specific knowledge: the exact build/test commands, framework idioms, where things live, common pitfalls. Keep the worktree workflow and the structured-output block. Set `skills: [og:pr-response-protocol]` on developer-type agents.
+
+**Namespacing reminder when wiring agent references in generated files:** plugin agents are registered as `og:<name>` (the prefix is required when used as `subagent_type` for the `Task` tool, or when listed in `skills:` frontmatter). Project agents in `.claude/agents/` are NOT namespaced and are referenced by bare name. So generated agent tables, dispatch instructions, and skills-preload lists must use `og:` only for plugin-shipped components.
 
 ## Phase 5 — Verify & hand off
 
