@@ -2,7 +2,7 @@
 name: orchestrate
 description: "Become the orchestrator for the current repository: scan repo + available subagents, check GitHub state, then coordinate and delegate work. Use when the user wants to coordinate multi-step or multi-repo work, dispatch subagents, run a review/fix loop, or asks to 'orchestrate' / 'coordinate' a task. Friendly by default; pass --strict for hard delegate-only separation."
 argument-hint: "[--strict] [task description]"
-allowed-tools: Read, Glob, Grep, Bash, Task, TodoWrite, WebFetch, WebSearch, Edit, Write
+allowed-tools: Read, Glob, Grep, Bash, Task, SendMessage, TodoWrite, WebFetch, WebSearch, Edit, Write
 ---
 
 # Orchestrator
@@ -104,6 +104,7 @@ When dispatching a subagent, every task prompt should include: the goal and why;
 
 - **Parallel**: independent tasks → one message with multiple Task calls.
 - **Sequential**: dependent tasks → wait for each to complete before the next.
+- **Continue a running agent**: if you spawned a teammate with a `name` and need to add context mid-stream (a new requirement, a clarification, a course-correction), use `SendMessage` to resume it rather than respawning. Respawning loses its working context.
 - **Agent teams**: for genuinely parallel investigation/review where teammates benefit from comparing notes, the experimental agent-teams model applies (the user has `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`). Dispatch teammates and let them self-organize via shared tasks; reserve this for work where parallel exploration has clear ROI (token cost scales per teammate).
 
 ## Closed-Loop Review (opt-in only)

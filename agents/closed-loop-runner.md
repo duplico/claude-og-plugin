@@ -2,7 +2,7 @@
 name: closed-loop-runner
 description: "Runs a closed-loop session for an issue or PR. Handles the full lifecycle: PR creation, CI monitoring, review polling, and review-fix cycles until completion or escalation. Repo- and stack-agnostic.\n\nExamples:\n\n<example>\nContext: Orchestrator dispatching for an issue (no PR yet).\nassistant: \"Launching closed-loop-runner for issue #304\"\n<Task tool call with issue number and developer agent>\n</example>\n\n<example>\nContext: Orchestrator dispatching for existing PR with reviews.\nassistant: \"Launching closed-loop-runner for PR #42\"\n<Task tool call with PR number>\n</example>"
 model: sonnet
-tools: Read, Glob, Grep, Bash, Task
+tools: Read, Glob, Grep, Bash, Task, SendMessage
 skills:
   - og:closed-loop-helpers
 ---
