@@ -49,8 +49,11 @@ Ship with the og plugin, on your PATH (else in the plugin's `bin/`).
 | `og-copilot-review <slug> <PR>` | Request/re-request a Copilot review via the REST `requested_reviewers` endpoint (bot login `copilot-pull-request-reviewer[bot]`), then **verifies** a Copilot login actually appears in the response — never trusts an exit code. Prints JSON; exits non-zero if the request didn't take. |
 | `og-copilot-comments <slug> <PR> [--since ISO \| --since-head]` | List Copilot findings from **both** endpoints, case-insensitively, optionally timestamp-gated. Prints JSON `{review_count, comment_count, latest_at, has_findings, reviews[], comments[]}`. |
 
-`--since-head` gates on the current head commit's date — use it to see only
-Copilot feedback on the **latest push**, ignoring stale findings from earlier rounds.
+`--since-head` gates on the current head commit's **commit timestamp** (the
+committer date) — use it to focus on Copilot feedback on the latest revision,
+ignoring stale findings from earlier rounds. Note this is the commit's timestamp,
+not the moment it was pushed; the two usually coincide but can differ (e.g. a
+rebase or an amended older commit), so treat it as a close approximation.
 
 ## Recipe A — detect only
 

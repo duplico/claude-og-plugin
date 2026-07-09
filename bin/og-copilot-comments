@@ -20,7 +20,9 @@
 # Options:
 #   --since ISO8601   Only return findings at/after this timestamp.
 #   --since-head      Only return findings at/after the current head commit's
-#                     commit date (i.e. Copilot feedback on the latest push).
+#                     commit timestamp (committer date) — i.e. Copilot feedback on
+#                     the latest revision. This is the commit's timestamp, not the
+#                     push time; the two usually coincide but can differ.
 #   (no flag)         Return all Copilot findings on the PR.
 #
 # Output: JSON { repo, pr, since, head_sha, review_count, comment_count,
@@ -90,7 +92,8 @@ if [[ "$SINCE_HEAD" == "true" ]]; then
         echo "Error: pass only one of --since / --since-head" >&2
         exit 1
     fi
-    # Commit date of the current head — "feedback on the latest push".
+    # Committer timestamp of the current head commit (a close approximation of
+    # "feedback on the latest revision" — not literally the push time).
     SINCE_TS=$(gh api "repos/${REPO}/commits/${HEAD_SHA}" --jq '.commit.committer.date')
 fi
 
