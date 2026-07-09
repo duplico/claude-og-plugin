@@ -111,6 +111,10 @@ When dispatching a subagent, every task prompt should include: the goal and why;
 
 Do NOT auto-iterate review/fix cycles. Only enter closed-loop mode when the user explicitly asks ("enter closed-loop on PR #N"). Then dispatch `og:closed-loop-runner` (see its preloaded `og:closed-loop-helpers` skill). Confirm round limit and attended/unattended mode via AskUserQuestion before starting.
 
+## Copilot Reviews (opt-in only)
+
+GitHub Copilot review is an **optional** source you reach for only when the user asks — "I triggered a Copilot review, look at its comments" or "start requesting Copilot reviews on this PR." Never trigger or wait on Copilot on your own. When the user does bring it in, load the `og:copilot-reviews` skill: it explains why Copilot posts under two logins across two endpoints, that it does **not** auto-review on push (must be re-requested each round), and ships `og-copilot-review` (trigger) and `og-copilot-comments` (find findings from both endpoints, timestamp-gated). Route surfaced findings to `og:orchestrator-reviewer` like any other review comments.
+
 ## Routines (recurring work)
 
 If you notice the user repeatedly asking for the same scheduled-feeling task (nightly PR triage, weekly dependency sweeps, periodic CI babysitting), proactively suggest turning it into a **Routine** (`/schedule`) or a `/loop`, rather than re-running it by hand. Recommend, don't auto-create.

@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# og-copilot-review: Request (or re-request) a GitHub Copilot code review on a PR
+#
+# Copilot does NOT auto-review on push. After a PR is updated with fix commits,
+# Copilot will not re-review unless the review is explicitly re-requested each
+# round. A "wait for Copilot" flow must therefore REQUEST first, then poll
+# (see og-copilot-comments) — polling alone hangs forever after round one.
+#
+# Primary path uses the gh CLI's built-in @copilot reviewer alias (gh >= 2.88.0).
+# Falls back to the REST requested_reviewers endpoint with the bot login.
+#
+# Note on re-requests: requesting again on an UNCHANGED head is deduped by GitHub
+# ("already up to date") — a fresh review only lands after a new head commit is
+# pushed and the review is re-requested. If Copilot's prior review is stale and
+# blocking a re-review, minimize (mark outdated) its previous review in the UI or
+# via GraphQL first; this script intentionally stays on the supported CLI path.
+#
+# Usage: og-copilot-review owner/repo PR_NUMBER
+#
+# Output: JSON { repo, pr, requested, method, head_sha, note }
+#
+# Example:
+#   og-copilot-review 1512-ninja/ha-1512 44
+
+set -euo pipefail
+
+usage() {
+    echo "Usage: $0 owner/repo PR_NUMBER" >&2
+    exit 1
+}
+
+if [[ $# -ne 2 ]]; then
+    usage
+fi
+
+REPO="$1"
+PR_NUMBER="$2"
+
+# Validate repo format
+if [[ ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
+    echo "Error: Repository must be in 'owner/repo' format" >&2
+    exit 1
+fi
+
+# Validate PR number
+if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+    echo "Error: PR number must be a positive integer" >&2
+    exit 1
+fi
+
+HEAD_SHA=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.head.sha')
+
+METHOD=""
+NOTE=""
+
+# Primary: gh CLI @copilot alias (gh >= 2.88.0).
+if gh pr edit "$PR_NUMBER" --repo "$REPO" --add-reviewer @copilot >/dev/null 2>&1; then
+    METHOD="gh-cli"
+else
+    # Fallback: REST requested_reviewers with the bot login.
+    if gh api -X POST "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
+        -f 'reviewers[]=copilot-pull-request-reviewer[bot]' >/dev/null 2>&1; then
+        METHOD="rest-api"
+    else
+        echo "Error: could not request a Copilot review via gh CLI or REST." >&2
+        echo "  Check: gh >= 2.88.0, repo has Copilot code review enabled, and you have access." >&2
+        exit 1
+    fi
+fi
+
+NOTE="Requested. Copilot does not auto-review on push; re-request each round. Poll with og-copilot-comments --since-head."
+
+jq -n \
+    --arg repo "$REPO" \
+    --argjson pr "$PR_NUMBER" \
+    --arg method "$METHOD" \
+    --arg head_sha "$HEAD_SHA" \
+    --arg note "$NOTE" \
+    '{
+        repo: $repo,
+        pr: $pr,
+        requested: true,
+        method: $method,
+        head_sha: $head_sha,
+        note: $note
+    }'

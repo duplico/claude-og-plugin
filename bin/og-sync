@@ -31,7 +31,7 @@ PLUGIN_AGENTS = [
 ]
 PLUGIN_SKILLS = [
     "orchestrate", "orchestrate-init", "check-wsl", "sync",
-    "pr-response-protocol", "closed-loop-helpers",
+    "pr-response-protocol", "closed-loop-helpers", "copilot-reviews",
 ]
 ALL_NAMES = PLUGIN_AGENTS + PLUGIN_SKILLS
 

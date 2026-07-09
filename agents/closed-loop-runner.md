@@ -69,6 +69,8 @@ closed-loop-comment {repo} {pr} "CI passed. Waiting for reviews." \
 
 Poll `closed-loop-status` until unresolved review threads appear, then proceed.
 
+**Copilot (opt-in only):** if the user asked to bring GitHub Copilot into the loop, load the `og:copilot-reviews` skill. Copilot does **not** auto-review on push, so you must `og-copilot-review <repo> <pr>` to request it, then poll `og-copilot-comments <repo> <pr> --since-head` (both endpoints, timestamp-gated) — a summary-only Copilot review creates no `reviewThreads`, so `closed-loop-status` alone can miss it. Re-request each round after pushing fixes. Never trigger or wait on Copilot unless the user asked; bound your polling and report rather than looping forever.
+
 ### Phase 4: Review-Fix Loop
 
 Repeat until a stop condition is met:
