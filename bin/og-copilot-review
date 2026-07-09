@@ -6,18 +6,23 @@
 # round. A "wait for Copilot" flow must therefore REQUEST first, then poll
 # (see og-copilot-comments) — polling alone hangs forever after round one.
 #
-# Primary path uses the gh CLI's built-in @copilot reviewer alias (gh >= 2.88.0).
-# Falls back to the REST requested_reviewers endpoint with the bot login.
+# Uses the REST requested_reviewers endpoint with the bot login, then VERIFIES
+# the request actually took from the response body. We deliberately do NOT use
+# `gh pr edit --add-reviewer @copilot`: that alias needs gh >= 2.88.0 and, on
+# older gh, silently no-ops while still exiting 0 — a false-positive success.
+# The REST path is version-independent and echoes back the requested reviewers.
 #
 # Note on re-requests: requesting again on an UNCHANGED head is deduped by GitHub
 # ("already up to date") — a fresh review only lands after a new head commit is
 # pushed and the review is re-requested. If Copilot's prior review is stale and
 # blocking a re-review, minimize (mark outdated) its previous review in the UI or
-# via GraphQL first; this script intentionally stays on the supported CLI path.
+# via GraphQL first; this script intentionally stays on the plain request path.
 #
 # Usage: og-copilot-review owner/repo PR_NUMBER
 #
 # Output: JSON { repo, pr, requested, method, head_sha, note }
+#   requested is true only when a Copilot login is confirmed in the response's
+#   requested_reviewers — never inferred from an exit code alone.
 #
 # Example:
 #   og-copilot-review 1512-ninja/ha-1512 44
@@ -50,30 +55,39 @@ fi
 
 HEAD_SHA=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.head.sha')
 
-METHOD=""
-NOTE=""
+# Request via REST. The response is the PR object, including requested_reviewers.
+RESP=$(gh api -X POST "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
+    -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>/dev/null) || RESP=""
 
-# Primary: gh CLI @copilot alias (gh >= 2.88.0).
-if gh pr edit "$PR_NUMBER" --repo "$REPO" --add-reviewer @copilot >/dev/null 2>&1; then
-    METHOD="gh-cli"
-else
-    # Fallback: REST requested_reviewers with the bot login.
-    if gh api -X POST "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
-        -f 'reviewers[]=copilot-pull-request-reviewer[bot]' >/dev/null 2>&1; then
-        METHOD="rest-api"
-    else
-        echo "Error: could not request a Copilot review via gh CLI or REST." >&2
-        echo "  Check: gh >= 2.88.0, repo has Copilot code review enabled, and you have access." >&2
-        exit 1
-    fi
+# Confirm a Copilot login is actually present in the echoed requested_reviewers.
+CONFIRMED="false"
+if [[ -n "$RESP" ]]; then
+    CONFIRMED=$(echo "$RESP" | jq -r '
+        [(.requested_reviewers // [])[].login | ascii_downcase | contains("copilot")]
+        | any' 2>/dev/null || echo "false")
 fi
 
-NOTE="Requested. Copilot does not auto-review on push; re-request each round. Poll with og-copilot-comments --since-head."
+# Fallback verification: a fresh request may have been deduped (already pending),
+# so the POST response might not echo it. Re-check the PR's current reviewers.
+if [[ "$CONFIRMED" != "true" ]]; then
+    CONFIRMED=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '
+        [(.requested_reviewers // [])[].login | ascii_downcase | contains("copilot")]
+        | any' 2>/dev/null || echo "false")
+fi
+
+if [[ "$CONFIRMED" != "true" ]]; then
+    echo "Error: Copilot review request did not take." >&2
+    echo "  The requested_reviewers list shows no Copilot login after the request." >&2
+    echo "  Check: repo has Copilot code review enabled, and you have access to request it." >&2
+    exit 1
+fi
+
+NOTE="Requested and confirmed in requested_reviewers. Copilot does not auto-review on push; re-request each round. Poll with og-copilot-comments --since-head."
 
 jq -n \
     --arg repo "$REPO" \
     --argjson pr "$PR_NUMBER" \
-    --arg method "$METHOD" \
+    --arg method "rest-api" \
     --arg head_sha "$HEAD_SHA" \
     --arg note "$NOTE" \
     '{
