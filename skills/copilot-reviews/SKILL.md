@@ -47,7 +47,8 @@ Ship with the og plugin, on your PATH (else in the plugin's `bin/`).
 | Script | Purpose |
 |---|---|
 | `og-copilot-review <slug> <PR>` | Request/re-request a Copilot review via the REST `requested_reviewers` endpoint (bot login `copilot-pull-request-reviewer[bot]`), then **verifies** a Copilot login actually appears in the response — never trusts an exit code. Prints JSON; exits non-zero if the request didn't take. |
-| `og-copilot-comments <slug> <PR> [--since ISO \| --since-head]` | List Copilot findings from **both** endpoints, case-insensitively, optionally timestamp-gated. Prints JSON `{review_count, comment_count, latest_at, has_findings, reviews[], comments[]}`. |
+| `og-copilot-comments <slug> <PR> [--since ISO \| --since-head]` | List Copilot findings from **both** endpoints, case-insensitively, optionally timestamp-gated. Prints JSON `{review_count, comment_count, latest_at, has_findings, reviews[], comments[]}`. Each `comments[]` entry's `url` ends in `#discussion_r<ID>` — that `<ID>` is the comment databaseId to reply to. |
+| `og-pr-reply-resolve <slug> <PR> <comment_id> "<body>" [--disclose MODEL]` | Reply to a Copilot (or human) review comment **and** resolve its thread in one call. Use when a finding is fixed; pass `--no-resolve` for "won't fix"/questions. |
 
 `--since-head` gates on the current head commit's **commit timestamp** (the
 committer date) — use it to focus on Copilot feedback on the latest revision,
@@ -66,7 +67,9 @@ og-copilot-comments <slug> <PR> --since-head
 If `has_findings` is true, hand the `reviews[]` + `comments[]` to a reviewer agent
 to categorize (A: fix now / B: defer / C: design decision / D: disagree), then fix
 as usual. Copilot findings are just another review source — treat them like human
-review comments once surfaced.
+review comments once surfaced. When you fix one, close it with
+`og-pr-reply-resolve` (reply citing the SHA **and** resolve the thread in one step);
+for "won't fix"/questions, reply with `--no-resolve` and leave it open.
 
 ## Recipe B — trigger, then poll
 

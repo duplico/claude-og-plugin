@@ -27,6 +27,20 @@ gh api repos/{owner}/{repo}/pulls/{N}/comments/{comment_id}/replies \
 
 The `{comment_id}` comes from the `databaseId` field in the GraphQL `reviewThreads` response.
 
+## Reply and Resolve Together
+
+When your reply says a finding is **fixed**, resolve its thread in the same step — a fixed finding left as an open conversation reads as unaddressed. Reply and resolve use different ids (comment `databaseId` vs. thread node id), so use the coupled helper, which posts the reply, finds the enclosing thread by comment id, and resolves it:
+
+```bash
+og-pr-reply-resolve {owner}/{repo} {N} {comment_id} \
+  "Fixed in {sha} - renamed to \`getCurrentUser()\` as suggested." \
+  --disclose "{model}"
+```
+
+- Only resolve when the reply is "Fixed/Addressed in {sha}". For "Won't fix" (Category D) or "Question", reply but **do not** resolve — pass `--no-resolve` and leave the conversation open.
+- It resolves only the one thread containing that comment — never a bulk sweep.
+- **Exception — closed-loop mode:** if a `closed-loop-runner` is driving this PR, it owns resolution as a distinct verification step (its Step 7). Reply with `--no-resolve` and let the runner resolve addressed threads by id.
+
 ## Acceptable Reply Content
 
 - "Fixed in {sha}" or "Fixed in {sha} - [brief description]"
