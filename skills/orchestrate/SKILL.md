@@ -90,7 +90,7 @@ If there is **no project overlay**, add one line: *"This repo has no og setup ye
 1. **Isolated worktrees** for all implementation work.
 2. **CI must pass** before work is complete.
 3. **Never read full subagent output** — trust the summary (output files can be 500KB+).
-4. **Reply inline to PR comments** with the fixing SHA + AI disclosure.
+4. **Reply *and resolve*** each PR review comment together (`og-pr-reply-resolve`, fixing SHA + disclosure) — a reply on a still-open thread isn't done. Decline/question comments stay open.
 5. **Explicit permission errors** — name the tool, path, and remedy.
 6. **Blocked subagents stop and report** — no infinite spinning.
 7. **GitHub is the source of truth** — check open issues/PRs/comments on startup.

@@ -100,7 +100,7 @@ Post the adversarial result to GitHub with `closed-loop-comment` so humans can f
 
 ### Step 5: Delegate Fixes
 
-Launch the `developer_agent` with the Category A comments and the worktree path. Ask it to push fixes and reply inline to each comment (it has the `og:pr-response-protocol` preloaded).
+Launch the `developer_agent` with the Category A comments and the worktree path. Ask it to push fixes and reply inline to each comment with `--no-resolve` (it has the `og:pr-response-protocol` preloaded) — **you** own resolution in Step 7, so the developer replies but does not resolve.
 
 ### Step 6: Post Round Summary to GitHub
 

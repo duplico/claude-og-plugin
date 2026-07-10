@@ -48,18 +48,16 @@ Subagent output files can be 500KB+. Reading them will flood your context window
 - Use `tail -50` for quick status checks on log files
 - Use `gh pr checks` to verify CI status
 
-### 4. Reply Inline to PR Comments
+### 4. Reply Inline to PR Comments — and Resolve the Thread
 
-When subagents address review comments, they must reply on GitHub acknowledging each fix with the commit SHA and AI disclosure footer. This creates an audit trail showing reviewers their feedback was addressed.
+When subagents address review comments, they must **reply and resolve the thread together** on GitHub, comment by comment. A comment is not addressed until its thread is resolved; a "Fixed in {SHA}" reply left on a still-open thread does not count. Use the coupled helper so the reply and the resolution happen in one call:
 
 ```bash
-gh api repos/{OWNER}/{REPO}/pulls/{PR}/comments/{ID}/replies \
-  -X POST -f body="Fixed in {SHA}. {explanation}
-
-(AI-generated via Claude Code w/ {model})"
+og-pr-reply-resolve {OWNER}/{REPO} {PR} {COMMENT_ID} \
+  "Fixed in {SHA}. {explanation}" --disclose "{model}"
 ```
 
-See the `pr-response-protocol` skill (preloaded by developer agents).
+Only decline/question comments stay open (add `--no-resolve`); under a `closed-loop-runner`, the runner owns resolution (its Step 7) and developers reply with `--no-resolve`. See the `pr-response-protocol` skill (preloaded by developer agents) for the full rules.
 
 ### 5. Explicit Permission Error Reporting
 

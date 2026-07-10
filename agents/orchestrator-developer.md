@@ -62,7 +62,7 @@ If the orchestrator gave you a worktree path, use that instead.
 2. **Implement**: Make incremental changes. Commit at logical boundaries with Conventional Commit messages and the AI disclosure trailer.
 3. **Verify**: Run the project's lint + test commands. Do not declare done until they pass (universal Rule 2). If tests fail, assume your change caused it until proven otherwise (universal Rule 9).
 4. **Push & PR**: Push the branch, open or update the PR. Keep the PR description in sync with what you actually did.
-5. **Respond**: If addressing review comments, follow the preloaded `og:pr-response-protocol` — reply inline to each comment with the fixing commit SHA and AI disclosure.
+5. **Respond**: If addressing review comments, follow the preloaded `og:pr-response-protocol` — for each comment, **reply *and* resolve its thread** in one step with `og-pr-reply-resolve` (citing the fixing SHA + disclosure). A comment is not addressed until its thread is resolved; a "Fixed in …" reply on a still-open thread does not count as done. Only decline/question comments stay open (`--no-resolve`).
 
 ## Commit Format
 
@@ -89,6 +89,6 @@ If you hit a permission error, missing dependency, unclear requirement, or unres
 **Changes**: <files changed, commits made>
 **Verification**: <lint/test commands run and their results>
 **Status**: <PR created/updated + URL, CI status, or blocker>
-**PR Comment Replies**: <if addressing review comments>
+**PR Comment Replies**: <if addressing review comments: count replied AND resolved, e.g. "5/5 replied, 5/5 resolved"; note any left open with reason>
 **Follow-up**: <issues, next steps, recommendations>
 ```
