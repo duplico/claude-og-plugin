@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+# og-pr-reply-resolve: Reply to a PR review comment AND resolve its thread
+#
+# Couples the two steps that should always go together when a review finding is
+# addressed: post an inline reply citing the fix, then mark the conversation
+# resolved. Reply and resolve use DIFFERENT id spaces — the reply targets a
+# comment databaseId, resolution targets the thread's GraphQL node id — so this
+# script takes the comment id, posts the reply, finds the enclosing review
+# thread, and resolves it in one call.
+#
+# Resolves ONLY the single thread containing the given comment — never a bulk
+# sweep, so it can't hide review threads opened since you last looked.
+#
+# Usage: og-pr-reply-resolve owner/repo PR_NUMBER COMMENT_ID "<body>" [--disclose MODEL] [--no-resolve]
+#
+# Arguments:
+#   COMMENT_ID   databaseId of the review comment to reply to (integer). For
+#                Copilot findings, this is the numeric id in the comment URL
+#                (.../#discussion_r<ID>) or from og-copilot-comments.
+#   <body>       Reply text. Use "-" to read the body from stdin.
+#
+# Options:
+#   --disclose MODEL  Append "\n\n(AI-generated via Claude Code w/ MODEL)".
+#   --no-resolve      Post the reply only; do not resolve the thread.
+#
+# Output: JSON { repo, pr, comment_id, reply_id, reply_url, thread_id, resolved }
+#
+# Example:
+#   og-pr-reply-resolve duplico/claude-og-plugin 1 3555436613 \
+#     "Fixed in 7c6dc0f — reworded to say committer timestamp, not push time." \
+#     --disclose "Opus 4.8"
+
+set -euo pipefail
+
+usage() {
+    echo "Usage: $0 owner/repo PR_NUMBER COMMENT_ID \"<body>\" [--disclose MODEL] [--no-resolve]" >&2
+    exit 1
+}
+
+if [[ $# -lt 4 ]]; then
+    usage
+fi
+
+REPO="$1"
+PR_NUMBER="$2"
+COMMENT_ID="$3"
+BODY="$4"
+shift 4
+
+DISCLOSE_MODEL=""
+RESOLVE="true"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --disclose)
+            [[ $# -ge 2 ]] || usage
+            DISCLOSE_MODEL="$2"
+            shift 2
+            ;;
+        --no-resolve)
+            RESOLVE="false"
+            shift
+            ;;
+        *)
+            echo "Error: unknown argument '$1'" >&2
+            usage
+            ;;
+    esac
+done
+
+# Validate repo format
+if [[ ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
+    echo "Error: Repository must be in 'owner/repo' format" >&2
+    exit 1
+fi
+OWNER="${REPO%%/*}"
+REPO_NAME="${REPO##*/}"
+
+# Validate PR number
+if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+    echo "Error: PR number must be a positive integer" >&2
+    exit 1
+fi
+
+# Validate comment id
+if ! [[ "$COMMENT_ID" =~ ^[0-9]+$ ]]; then
+    echo "Error: COMMENT_ID must be a numeric review-comment databaseId" >&2
+    exit 1
+fi
+
+# Body from stdin if "-"
+if [[ "$BODY" == "-" ]]; then
+    BODY="$(cat)"
+fi
+if [[ -n "$DISCLOSE_MODEL" ]]; then
+    BODY="${BODY}"$'\n\n'"(AI-generated via Claude Code w/ ${DISCLOSE_MODEL})"
+fi
+
+# 1. Post the inline reply (targets the comment databaseId).
+REPLY=$(gh api -X POST "repos/${REPO}/pulls/${PR_NUMBER}/comments/${COMMENT_ID}/replies" \
+    -f body="$BODY")
+REPLY_ID=$(echo "$REPLY" | jq -r '.id')
+REPLY_URL=$(echo "$REPLY" | jq -r '.html_url')
+
+THREAD_ID="null"
+RESOLVED="false"
+
+if [[ "$RESOLVE" == "true" ]]; then
+    # 2. Find the review thread node id that contains this comment databaseId.
+    THREAD_ID=$(gh api graphql -f query='
+        query($owner: String!, $repo: String!, $pr: Int!) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $pr) {
+              reviewThreads(first: 100) {
+                nodes { id comments(first: 100) { nodes { databaseId } } }
+              }
+            }
+          }
+        }' -f owner="$OWNER" -f repo="$REPO_NAME" -F pr="$PR_NUMBER" \
+        | jq -r --argjson cid "$COMMENT_ID" '
+            [.data.repository.pullRequest.reviewThreads.nodes[]
+             | select(any(.comments.nodes[]; .databaseId == $cid)) | .id][0] // "null"')
+
+    if [[ "$THREAD_ID" == "null" || -z "$THREAD_ID" ]]; then
+        echo "Warning: replied, but could not find a review thread containing comment ${COMMENT_ID} — not resolved." >&2
+        echo "  (Is it a PR-level comment rather than an inline review comment?)" >&2
+    else
+        # 3. Resolve that thread.
+        IS_RESOLVED=$(gh api graphql -f query='
+            mutation($threadId: ID!) {
+              resolveReviewThread(input: {threadId: $threadId}) {
+                thread { isResolved }
+              }
+            }' -f threadId="$THREAD_ID" \
+            | jq -r '.data.resolveReviewThread.thread.isResolved // false')
+        RESOLVED="$IS_RESOLVED"
+        if [[ "$RESOLVED" != "true" ]]; then
+            echo "Warning: replied, but thread ${THREAD_ID} did not resolve." >&2
+        fi
+    fi
+fi
+
+jq -n \
+    --arg repo "$REPO" \
+    --argjson pr "$PR_NUMBER" \
+    --argjson comment_id "$COMMENT_ID" \
+    --argjson reply_id "$REPLY_ID" \
+    --arg reply_url "$REPLY_URL" \
+    --arg thread_id "$THREAD_ID" \
+    --argjson resolved "$RESOLVED" \
+    '{
+        repo: $repo,
+        pr: $pr,
+        comment_id: $comment_id,
+        reply_id: $reply_id,
+        reply_url: $reply_url,
+        thread_id: (if $thread_id == "null" then null else $thread_id end),
+        resolved: $resolved
+    }'

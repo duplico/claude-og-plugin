@@ -47,6 +47,8 @@ Read whichever exist: `CLAUDE.md`, `.github/copilot-instructions.md`, `.ai/conte
 
 For Mode 3, fetch threads with both the thread ID (for resolution) and comment `databaseId` (for inline replies) via the GraphQL `reviewThreads` query, and categorize:
 
+> **Copilot in the loop?** If the user has brought GitHub Copilot into the review, also pull its findings with `og-copilot-comments <slug> <PR>` and categorize them alongside human comments — load the `og:copilot-reviews` skill for the how/why. Copilot posts under two logins across the reviews **and** comments endpoints, and a summary-only review has no `reviewThreads` entry, so the GraphQL query alone can miss it. Do this only when Copilot is actually part of this PR's review; never trigger one yourself.
+
 | Category | Meaning | Action |
 |---|---|---|
 | A | Fix now | Address in this PR |

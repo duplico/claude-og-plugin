@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+# og-copilot-comments: List GitHub Copilot review findings on a PR
+#
+# Copilot exposes review feedback under TWO distinct author logins across TWO
+# endpoints, and neither equals the naive "copilot-pull-request-reviewer" guess:
+#
+#   | object                | endpoint                      | user.login                        |
+#   |-----------------------|-------------------------------|-----------------------------------|
+#   | review (summary)      | /pulls/{n}/reviews            | copilot-pull-request-reviewer[bot]|
+#   | inline review comment | /pulls/{n}/comments           | Copilot                           |
+#
+# This script checks BOTH endpoints and matches case-insensitively by substring
+# (contains "copilot"), so it never misses a "reviewed, generated N comments" or a
+# summary-only review. Optionally gates on freshness by timestamp — never on
+# `requested_reviewers`, which is unreliable for Copilot (may be empty while a
+# review is pending or already posted).
+#
+# Usage: og-copilot-comments owner/repo PR_NUMBER [--since ISO8601 | --since-head]
+#
+# Options:
+#   --since ISO8601   Only return findings at/after this timestamp.
+#   --since-head      Only return findings at/after the current head commit's
+#                     commit timestamp (committer date) — i.e. Copilot feedback on
+#                     the latest revision. This is the commit's timestamp, not the
+#                     push time; the two usually coincide but can differ.
+#   (no flag)         Return all Copilot findings on the PR.
+#
+# Output: JSON { repo, pr, since, head_sha, review_count, comment_count,
+#                latest_at, has_findings, reviews[], comments[] }
+#
+# Examples:
+#   og-copilot-comments 1512-ninja/ha-1512 44
+#   og-copilot-comments 1512-ninja/ha-1512 44 --since-head
+#   og-copilot-comments 1512-ninja/ha-1512 44 --since "2026-07-09T15:30:00Z"
+
+set -euo pipefail
+
+usage() {
+    echo "Usage: $0 owner/repo PR_NUMBER [--since ISO8601 | --since-head]" >&2
+    exit 1
+}
+
+if [[ $# -lt 2 ]]; then
+    usage
+fi
+
+REPO="$1"
+PR_NUMBER="$2"
+shift 2
+
+SINCE_TS=""
+SINCE_HEAD="false"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --since)
+            [[ $# -ge 2 ]] || usage
+            SINCE_TS="$2"
+            shift 2
+            ;;
+        --since-head)
+            SINCE_HEAD="true"
+            shift
+            ;;
+        *)
+            echo "Error: unknown argument '$1'" >&2
+            usage
+            ;;
+    esac
+done
+
+# Validate repo format
+if [[ ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
+    echo "Error: Repository must be in 'owner/repo' format" >&2
+    exit 1
+fi
+
+# Validate PR number
+if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+    echo "Error: PR number must be a positive integer" >&2
+    exit 1
+fi
+
+# Copilot login filter: case-insensitive substring, applied to both endpoints.
+COPILOT_FILTER='select((.user.login // "") | ascii_downcase | contains("copilot"))'
+
+# Resolve head SHA (always fetched; also used for --since-head gating).
+HEAD_SHA=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.head.sha')
+
+# Establish the freshness cutoff.
+if [[ "$SINCE_HEAD" == "true" ]]; then
+    if [[ -n "$SINCE_TS" ]]; then
+        echo "Error: pass only one of --since / --since-head" >&2
+        exit 1
+    fi
+    # Committer timestamp of the current head commit (a close approximation of
+    # "feedback on the latest revision" — not literally the push time).
+    SINCE_TS=$(gh api "repos/${REPO}/commits/${HEAD_SHA}" --jq '.commit.committer.date')
+fi
+
+# Fetch both endpoints (paginated). Review summaries carry submitted_at; inline
+# review comments carry created_at — normalize both to `at` for uniform gating.
+REVIEWS=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" --paginate \
+    --jq "[.[] | ${COPILOT_FILTER} | {
+        at: .submitted_at,
+        author: .user.login,
+        state: .state,
+        url: .html_url,
+        body: ((.body // \"\") | split(\"\n\")[0:3] | join(\"\n\"))
+    }]")
+
+COMMENTS=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments" --paginate \
+    --jq "[.[] | ${COPILOT_FILTER} | {
+        at: .created_at,
+        author: .user.login,
+        path: .path,
+        line: (.line // .original_line),
+        url: .html_url,
+        body: ((.body // \"\") | split(\"\n\")[0:3] | join(\"\n\"))
+    }]")
+
+# Apply the freshness cutoff (no-op when SINCE_TS is empty).
+if [[ -n "$SINCE_TS" ]]; then
+    REVIEWS=$(echo "$REVIEWS" | jq --arg since "$SINCE_TS" '[.[] | select(.at != null and .at >= $since)]')
+    COMMENTS=$(echo "$COMMENTS" | jq --arg since "$SINCE_TS" '[.[] | select(.at != null and .at >= $since)]')
+fi
+
+REVIEW_COUNT=$(echo "$REVIEWS" | jq 'length')
+COMMENT_COUNT=$(echo "$COMMENTS" | jq 'length')
+LATEST_AT=$(jq -n --argjson r "$REVIEWS" --argjson c "$COMMENTS" \
+    '[($r[].at), ($c[].at)] | map(select(. != null)) | (max // null)')
+HAS_FINDINGS="false"
+if [[ "$REVIEW_COUNT" -gt 0 || "$COMMENT_COUNT" -gt 0 ]]; then
+    HAS_FINDINGS="true"
+fi
+
+jq -n \
+    --arg repo "$REPO" \
+    --argjson pr "$PR_NUMBER" \
+    --arg since "${SINCE_TS:-}" \
+    --arg head_sha "$HEAD_SHA" \
+    --argjson review_count "$REVIEW_COUNT" \
+    --argjson comment_count "$COMMENT_COUNT" \
+    --argjson latest_at "$LATEST_AT" \
+    --argjson has_findings "$HAS_FINDINGS" \
+    --argjson reviews "$REVIEWS" \
+    --argjson comments "$COMMENTS" \
+    '{
+        repo: $repo,
+        pr: $pr,
+        since: (if $since == "" then null else $since end),
+        head_sha: $head_sha,
+        review_count: $review_count,
+        comment_count: $comment_count,
+        latest_at: $latest_at,
+        has_findings: $has_findings,
+        reviews: $reviews,
+        comments: $comments
+    }'
