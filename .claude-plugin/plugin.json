@@ -1,6 +1,6 @@
 {
   "name": "og",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "George's portable Claude Code orchestrator: generic agents, skills, hooks, and bootstrap slash commands for any repo.",
   "author": {
     "name": "George Louthan",
