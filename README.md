@@ -1,17 +1,17 @@
-# og — portable orchestrator plugin for Claude Code
+# og -- portable orchestrator plugin for Claude Code
 
 Personal Claude Code plugin that brings a familiar orchestrator + subagent pattern to any repo.
 
 ## What's in the box
 
-- **`/og:orchestrate`** — orchestrator entry point. Scans the current repo and available subagents, reports state. Friendly by default; `--strict` for hard subagent separation.
-- **`/og:orchestrate-init`** — interactive bootstrap. Generates a project-specific orchestrator overlay, `CLAUDE.md`, permissions, and stack-appropriate domain agents in `<repo>/.claude/`.
-- **Generic subagents** — `orchestrator-developer` (worktree-creating implementer), `orchestrator-reviewer` (adversarial code review), `orchestrator-tester`, `closed-loop-runner`, plus shared utilities (`editor`, `just-expert`, `web-doc-searcher`).
-- **Copilot reviews (opt-in)** — `og:copilot-reviews` skill + `og-copilot-review` / `og-copilot-comments` scripts to trigger and correctly find GitHub Copilot code reviews (both author logins, both endpoints, no auto-review on push). Orchestrator agents reach for it only when you bring Copilot into a PR.
-- **`og-pr-reply-resolve`** — reply to a review comment (Copilot or human) **and** resolve its thread in one call, so a fixed finding is never left as an open conversation.
+- **`/og:orchestrate`** -- orchestrator entry point. Scans the current repo and available subagents, reports state. Friendly by default; `--strict` for hard subagent separation.
+- **`/og:orchestrate-init`** -- interactive bootstrap. Generates a project-specific orchestrator overlay, `CLAUDE.md`, permissions, and stack-appropriate domain agents in `<repo>/.claude/`.
+- **Generic subagents** -- `orchestrator-developer` (worktree-creating implementer), `orchestrator-reviewer` (adversarial code review), `orchestrator-tester`, `closed-loop-runner`, plus shared utilities (`editor`, `just-expert`, `web-doc-searcher`).
+- **Copilot reviews (opt-in)** -- `og:copilot-reviews` skill + `og-copilot-review` / `og-copilot-comments` scripts to trigger and correctly find GitHub Copilot code reviews (both author logins, both endpoints, no auto-review on push). Orchestrator agents reach for it only when you bring Copilot into a PR.
+- **`og-pr-reply-resolve`** -- reply to a review comment (Copilot or human) **and** resolve its thread in one call, so a fixed finding is never left as an open conversation.
 - **`claude-tmux`** -- manage a persistent tmux session of Claude Code windows. `new` / `save` / `restore` / `status` / `install-hooks` / `uninstall-hooks`. Resolves each window's Claude session id from `~/.claude/sessions/<pid>.json` and snapshots it to `~/.claude/tmux-state.json`, so `restore` brings your agents back with `claude --resume` rather than starting fresh ones. Atomic, locked writes (auto-save has four triggers, so concurrent saves are the norm); `restore` is idempotent. Requires `tmux` and `jq`.
-- **Guard hooks** — branch guard, worktree guard, AI-disclosure injection, WSL2 desktop notifications.
-- **Universal rules docs** — the 10 universal orchestrator rules referenced by every subagent.
+- **Guard hooks** -- branch guard, worktree guard, AI-disclosure injection, WSL2 desktop notifications.
+- **Universal rules docs** -- the 10 universal orchestrator rules referenced by every subagent.
 
 ## Install
 
