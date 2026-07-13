@@ -1,0 +1,370 @@
+#!/usr/bin/env bash
+# claude-tmux: Manage a tmux session of Claude Code instances with persistence.
+#
+# Usage:
+#   claude-tmux new [name]        - Open a new Claude window (prompts for name if omitted)
+#   claude-tmux save              - Snapshot the Claude session's windows to disk
+#   claude-tmux restore           - Restore windows from the last snapshot
+#   claude-tmux status            - Show current windows and their Claude sessions
+#   claude-tmux install-hooks     - Install tmux auto-save hooks (+ cron instructions)
+#   claude-tmux uninstall-hooks   - Remove the hooks this script installed
+#
+# State file: ~/.claude/tmux-state.json  (previous snapshot kept as .bak)
+
+set -euo pipefail
+
+STATE_DIR="${HOME}/.claude"
+STATE_FILE="${STATE_DIR}/tmux-state.json"
+LOCK_FILE="${STATE_FILE}.lock"
+SESSION_DIR="${STATE_DIR}/sessions"
+TMUX_SESSION="${CLAUDE_TMUX_SESSION:-claude}"
+SAVE_INTERVAL="${CLAUDE_TMUX_SAVE_INTERVAL:-300}"  # seconds, default 5 min
+
+# Absolute path to this script. tmux hooks and cron do NOT inherit our PATH, so they must
+# reference us by absolute path -- not by bare name, and not by a guessed install location
+# (this ships from the og plugin's bin/, not ~/.local/bin).
+#
+# Use logical `pwd`, NOT `readlink -f`/`pwd -P`. Resolving symlinks would bake the versioned
+# plugin cache dir (.../og/1.2.3/bin/) into the user's crontab, and that path disappears on the
+# next plugin upgrade. The symlink path survives. `CDPATH=` stops a user's CDPATH from making
+# `cd` print a resolved directory into the command substitution.
+SELF="$(CDPATH="" cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/$(basename -- "${BASH_SOURCE[0]}")"
+
+# Field separator for tmux -F output. A window name may legitimately contain ':' (e.g.
+# "fix:bug-123"), which would shred an IFS=':' parse, so use ASCII Unit Separator instead.
+US=$'\x1f'
+
+# --- Helpers ---
+
+die() { echo "error: $*" >&2; exit 1; }
+warn() { echo "warning: $*" >&2; }
+
+require_tmux() { command -v tmux >/dev/null 2>&1 || die "tmux is not installed"; }
+require_jq()   { command -v jq   >/dev/null 2>&1 || die "jq is not installed"; }
+
+# The tmux session we manage must exist for save/status to mean anything.
+require_session() {
+  tmux has-session -t "=${TMUX_SESSION}" 2>/dev/null \
+    || die "no tmux session named '${TMUX_SESSION}' (set CLAUDE_TMUX_SESSION to change)"
+}
+
+# Does this pid have a Claude session registry file? That is the authoritative test for
+# "is this process a Claude Code instance" -- far more reliable than matching "claude" in a
+# command line, which also matches any child whose cmdline merely mentions a ~/.claude path.
+session_file_for() {
+  local pid="$1"
+  local f="${SESSION_DIR}/${pid}.json"
+  [[ -f "$f" ]] && { echo "$f"; return 0; }
+  return 1
+}
+
+# Resolve the Claude session id running in a pane.
+#
+# `claude-tmux new` runs `tmux new-window "claude ..."`, which makes claude ITSELF the pane
+# process -- so the pane pid is the claude pid. Check the pane pid first. Only if that misses
+# (claude was started by hand inside a pane shell) do we walk descendants. The original code
+# only ever looked at children, so it never found the session for its own windows, and
+# `restore` therefore never resumed anything.
+get_claude_session() {
+  local pane_pid="$1"
+  local f pid
+
+  # 1. The pane process itself.
+  if f=$(session_file_for "$pane_pid"); then
+    jq -r '.sessionId // empty' "$f" 2>/dev/null && return 0
+  fi
+
+  # 2. Descendants, breadth-first, two levels (pane shell -> claude).
+  for pid in $(pgrep -P "$pane_pid" 2>/dev/null || true); do
+    if f=$(session_file_for "$pid"); then
+      jq -r '.sessionId // empty' "$f" 2>/dev/null && return 0
+    fi
+  done
+  for pid in $(pgrep -P "$pane_pid" 2>/dev/null || true); do
+    local gpid
+    for gpid in $(pgrep -P "$pid" 2>/dev/null || true); do
+      if f=$(session_file_for "$gpid"); then
+        jq -r '.sessionId // empty' "$f" 2>/dev/null && return 0
+      fi
+    done
+  done
+
+  return 1
+}
+
+# Write the state file atomically, under a lock, keeping the previous copy as .bak.
+#
+# install-hooks wires up FOUR save triggers (cron + 3 tmux hooks), so concurrent saves are the
+# design, not a corner case. A plain `echo > file` truncates in place: any interruption leaves a
+# 0-byte file and `restore` then dies on a jq parse error with nothing to fall back to.
+write_state() {
+  local state="$1"
+  mkdir -p "$STATE_DIR"
+
+  # Serialize concurrent saves. flock is Linux/util-linux; degrade gracefully without it.
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>"$LOCK_FILE"
+    flock -w 10 9 || die "timed out waiting for the state lock ($LOCK_FILE)"
+  fi
+
+  local tmp
+  tmp=$(mktemp "${STATE_FILE}.XXXXXX")
+  printf '%s\n' "$state" >"$tmp"
+
+  # Never replace a good state file with a bad one.
+  jq -e . "$tmp" >/dev/null 2>&1 || { rm -f "$tmp"; die "refusing to write malformed state"; }
+
+  if [[ -f "$STATE_FILE" ]]; then
+    cp -p "$STATE_FILE" "${STATE_FILE}.bak" 2>/dev/null || warn "could not refresh ${STATE_FILE}.bak"
+  fi
+  mv -f "$tmp" "$STATE_FILE"
+}
+
+# Reject a non-numeric interval BEFORE we touch tmux. Bare arithmetic on a non-numeric value
+# aborts under `set -u`, which previously happened AFTER the hooks were already installed --
+# leaving the user with live hooks, no cron line, and an error suggesting nothing had happened.
+validate_interval() {
+  [[ "$SAVE_INTERVAL" =~ ^[0-9]+$ ]] \
+    || die "CLAUDE_TMUX_SAVE_INTERVAL must be a whole number of seconds (got: '${SAVE_INTERVAL}')"
+}
+
+# --- Commands ---
+
+cmd_new() {
+  require_tmux
+  local name="${1:-}"
+  if [[ -z "$name" ]]; then
+    read -rp "Session name (e.g., scoring, o11y, debugging): " name
+    [[ -z "$name" ]] && die "A session name is required"
+  fi
+
+  # `tmux info` succeeds whenever a server is running with a client attached ANYWHERE -- it does
+  # not tell us whether *we* are inside tmux. Using it meant that running `claude-tmux new` from
+  # a plain shell, while any other terminal had tmux attached, silently injected the window into
+  # whatever session happened to be current. $TMUX is the correct test.
+  if [[ -n "${TMUX:-}" ]]; then
+    tmux new-window -t "=${TMUX_SESSION}" -n "$name" "claude -n $(printf '%q' "$name")"
+  elif tmux has-session -t "=${TMUX_SESSION}" 2>/dev/null; then
+    tmux new-window -t "=${TMUX_SESSION}" -n "$name" "claude -n $(printf '%q' "$name")"
+    tmux attach-session -t "=${TMUX_SESSION}"
+  else
+    tmux new-session -d -s "$TMUX_SESSION" -n "$name" "claude -n $(printf '%q' "$name")"
+    tmux attach-session -t "=${TMUX_SESSION}"
+  fi
+}
+
+cmd_save() {
+  require_tmux; require_jq; require_session
+
+  # Target $TMUX_SESSION explicitly. The old code snapshotted `display-message -p
+  # '#{session_name}'` -- the CURRENT session. Run from cron there is no attached client, so tmux
+  # returns the most recently active session, and the save would happily overwrite the Claude
+  # snapshot with some unrelated session's windows. install-hooks is what tells you to add that
+  # cron entry, so the tool's own auto-save caused the data loss it exists to prevent.
+  local entries="[]" win_idx win_name auto_rename pane_pid cwd claude_session entry
+  while IFS="$US" read -r win_idx win_name auto_rename pane_pid cwd; do
+    claude_session=$(get_claude_session "$pane_pid" 2>/dev/null) || claude_session=""
+    entry=$(jq -n \
+      --arg win_idx "$win_idx" --arg win_name "$win_name" \
+      --arg auto_rename "$auto_rename" --arg claude_session "$claude_session" \
+      --arg cwd "$cwd" \
+      '{window_index: ($win_idx|tonumber), window_name: $win_name,
+        manually_named: ($auto_rename == "0"), claude_session: $claude_session, cwd: $cwd}')
+    entries=$(jq --argjson e "$entry" '. + [$e]' <<<"$entries")
+  done < <(tmux list-windows -t "=${TMUX_SESSION}" \
+            -F "#{window_index}${US}#{window_name}${US}#{automatic-rename}${US}#{pane_pid}${US}#{pane_current_path}")
+
+  local state
+  state=$(jq -n --arg tmux_session "$TMUX_SESSION" --arg saved_at "$(date -Iseconds)" \
+    --argjson windows "$entries" \
+    '{tmux_session: $tmux_session, saved_at: $saved_at, windows: $windows}')
+
+  write_state "$state"
+
+  local n resumable
+  n=$(jq length <<<"$entries")
+  resumable=$(jq '[.[] | select(.claude_session != "")] | length' <<<"$entries")
+  echo "Saved ${n} windows (${resumable} with a resumable Claude session) to ${STATE_FILE}"
+  (( resumable == 0 && n > 0 )) && warn "no Claude sessions detected; restore will start fresh instances"
+  return 0
+}
+
+cmd_restore() {
+  require_tmux; require_jq
+  [[ -f "$STATE_FILE" ]] || die "no state file at $STATE_FILE (run 'claude-tmux save' first)"
+  jq -e . "$STATE_FILE" >/dev/null 2>&1 || die "state file is corrupt: $STATE_FILE (try ${STATE_FILE}.bak)"
+
+  local tmux_session saved_at
+  tmux_session=$(jq -r '.tmux_session' "$STATE_FILE")
+  saved_at=$(jq -r '.saved_at' "$STATE_FILE")
+
+  # Restore is idempotent: skip windows that already exist. The old version appended
+  # unconditionally, so a second restore duplicated every window and resumed the same session ids
+  # twice over.
+  local existing=""
+  if tmux has-session -t "=${tmux_session}" 2>/dev/null; then
+    existing=$(tmux list-windows -t "=${tmux_session}" -F '#{window_name}' 2>/dev/null || true)
+  fi
+
+  echo "Restoring into '${tmux_session}' from ${saved_at}"
+
+  local created=0 skipped=0 win win_name cwd claude_session manually_named cmd
+  while IFS= read -r win; do
+    win_name=$(jq -r '.window_name' <<<"$win")
+    cwd=$(jq -r '.cwd' <<<"$win")
+    claude_session=$(jq -r '.claude_session // ""' <<<"$win")
+    manually_named=$(jq -r '.manually_named' <<<"$win")
+
+    if [[ -n "$existing" ]] && grep -qxF -- "$win_name" <<<"$existing"; then
+      echo "  skip ${win_name} (already open)"
+      skipped=$((skipped + 1))
+      continue
+    fi
+
+    [[ -d "$cwd" ]] || { warn "cwd no longer exists, using \$HOME for '${win_name}': ${cwd}"; cwd="$HOME"; }
+
+    # Build the command with printf %q. The old version interpolated the saved cwd into nested
+    # single-quoted strings, which broke on any path containing a space and made a path
+    # containing a quote, $, ; or backtick a command-injection vector into the restored window.
+    if [[ -n "$claude_session" && "$claude_session" != "null" ]]; then
+      printf -v cmd 'claude --resume %q' "$claude_session"
+    elif [[ "$manually_named" == "true" ]]; then
+      printf -v cmd 'claude -n %q' "$win_name"
+    else
+      cmd="claude"
+    fi
+
+    if ! tmux has-session -t "=${tmux_session}" 2>/dev/null; then
+      tmux new-session -d -s "$tmux_session" -n "$win_name" -c "$cwd" "$cmd"
+    else
+      tmux new-window -t "=${tmux_session}" -n "$win_name" -c "$cwd" "$cmd"
+    fi
+    existing+=$'\n'"$win_name"
+    created=$((created + 1))
+    echo "  open ${win_name}${claude_session:+ (resume ${claude_session})}"
+  done < <(jq -c '.windows[]' "$STATE_FILE")
+
+  echo "Restored: ${created} opened, ${skipped} already present."
+  if [[ -z "${TMUX:-}" ]]; then
+    tmux attach-session -t "=${tmux_session}"
+  else
+    echo "Switch with: tmux switch-client -t ${tmux_session}"
+  fi
+}
+
+cmd_status() {
+  require_tmux; require_jq; require_session
+
+  printf "%-5s %-22s %-8s %-38s %s\n" "WIN" "NAME" "NAMED?" "CLAUDE SESSION" "CWD"
+  printf "%-5s %-22s %-8s %-38s %s\n" "---" "----" "------" "--------------" "---"
+
+  local win_idx win_name auto_rename pane_pid cwd named claude_session
+  while IFS="$US" read -r win_idx win_name auto_rename pane_pid cwd; do
+    named="no"; [[ "$auto_rename" == "0" ]] && named="yes"
+    claude_session=$(get_claude_session "$pane_pid" 2>/dev/null) || claude_session="-"
+    printf "%-5s %-22s %-8s %-38s %s\n" \
+      "$win_idx" "$win_name" "$named" "${claude_session:--}" "${cwd/#$HOME/\~}"
+  done < <(tmux list-windows -t "=${TMUX_SESSION}" \
+            -F "#{window_index}${US}#{window_name}${US}#{automatic-rename}${US}#{pane_pid}${US}#{pane_current_path}")
+}
+
+# The hook body, quoted so it survives both tmux's parser and sh.
+hook_shell_cmd() {
+  # A single quote in the install path cannot be represented inside tmux's single-quoted
+  # run-shell argument. Refuse rather than install a hook that silently never fires.
+  case "$SELF" in
+    *\'*) die "install path contains a single quote, which tmux cannot quote here: $SELF" ;;
+  esac
+  printf '%q save >/dev/null 2>&1' "$SELF"
+}
+
+cmd_install_hooks() {
+  require_tmux
+  validate_interval          # before we touch tmux, not after
+  local sh_cmd; sh_cmd=$(hook_shell_cmd)
+  local hook="run-shell '${sh_cmd}'"
+
+  # Append (-ga), never overwrite (-g). `set-hook -g` replaces index [0], which silently
+  # destroyed any window-linked/window-unlinked hook the user already had.
+  local h
+  for h in window-linked window-unlinked session-window-changed; do
+    if tmux show-hooks -g 2>/dev/null | grep -qF -- "$sh_cmd"; then
+      continue   # already installed; do not stack duplicates
+    fi
+    tmux set-hook -ga "$h" "$hook" || warn "could not set tmux hook: $h"
+  done
+
+  local cron_min=$(( (SAVE_INTERVAL + 59) / 60 ))
+  (( cron_min < 1 ))  && cron_min=1
+  (( cron_min > 59 )) && cron_min=59
+  # '%' is special in crontab (it becomes a newline); escape it if the path contains one.
+  local cron_cmd="${sh_cmd//%/\\%}"
+  local cron_entry="*/${cron_min} * * * * ${cron_cmd}"
+
+  echo "Installed tmux auto-save hooks (append mode; existing hooks preserved)."
+  echo "  script: ${SELF}"
+  echo ""
+  echo "NOTE: tmux hooks live in the running server only -- they do NOT survive a reboot."
+  echo "      To make auto-save durable, add the cron entry below (it does survive)."
+  echo ""
+  echo "Periodic save every ${cron_min}m (CLAUDE_TMUX_SAVE_INTERVAL=${SAVE_INTERVAL}s):"
+  echo "  ${cron_entry}"
+  if (( SAVE_INTERVAL > 3540 )); then
+    echo "  (capped at 59m; note */59 fires at :00 and :59, not once per hour)"
+  fi
+  echo ""
+  echo "Install it with:"
+  echo "  (crontab -l 2>/dev/null; echo '${cron_entry}') | crontab -"
+  echo ""
+  echo "Remove the tmux hooks again with: claude-tmux uninstall-hooks"
+}
+
+cmd_uninstall_hooks() {
+  require_tmux
+  local sh_cmd; sh_cmd=$(hook_shell_cmd)
+  local h idx removed=0
+  for h in window-linked window-unlinked session-window-changed; do
+    # Walk indices high->low so removal does not renumber the ones we have not checked yet.
+    while IFS= read -r idx; do
+      if tmux set-hook -gu "${h}[${idx}]" 2>/dev/null; then
+        removed=$((removed + 1))
+      fi
+    done < <(tmux show-hooks -g 2>/dev/null \
+             | grep -F -- "$sh_cmd" \
+             | sed -n "s/^${h}\[\([0-9]\+\)\].*/\1/p" | sort -rn)
+  done
+  echo "Removed ${removed} hook(s). Any crontab entry must be removed by hand:"
+  echo "  crontab -e   # delete the line calling ${SELF}"
+}
+
+# --- Main ---
+
+case "${1:-help}" in
+  new)              shift; cmd_new "$@" ;;
+  save)             cmd_save ;;
+  restore)          cmd_restore ;;
+  status)           cmd_status ;;
+  install-hooks|install)     cmd_install_hooks ;;
+  uninstall-hooks|uninstall) cmd_uninstall_hooks ;;
+  help|-h|--help)
+    cat <<'USAGE'
+claude-tmux: Manage persistent Claude Code tmux sessions
+
+Commands:
+  new [name]        Open a new Claude window (prompts for name if omitted)
+  save              Snapshot the Claude session's windows to disk
+  restore           Restore windows from the last snapshot (idempotent)
+  status            Show current windows and their Claude sessions
+  install-hooks     Install tmux auto-save hooks + print a cron entry
+  uninstall-hooks   Remove the hooks this script installed
+
+Environment:
+  CLAUDE_TMUX_SESSION        tmux session name (default: claude)
+  CLAUDE_TMUX_SAVE_INTERVAL  save interval in seconds (default: 300)
+
+State:
+  ~/.claude/tmux-state.json       current snapshot (previous kept as .bak)
+USAGE
+    ;;
+  *) die "Unknown command: $1 (try 'claude-tmux help')" ;;
+esac
