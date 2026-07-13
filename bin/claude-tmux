@@ -1,0 +1,316 @@
+#!/usr/bin/env bash
+# claude-tmux: Manage a tmux session of Claude Code instances with persistence.
+#
+# Usage:
+#   claude-tmux new [name]       - Open a new Claude window (prompts for name if omitted)
+#   claude-tmux save             - Snapshot current state to disk
+#   claude-tmux restore          - Restore windows from last snapshot
+#   claude-tmux status           - Show current windows and their Claude sessions
+#   claude-tmux install-hooks    - Install tmux auto-save hooks
+#
+# State file: ~/.claude/tmux-state.json
+
+set -euo pipefail
+
+STATE_DIR="${HOME}/.claude"
+STATE_FILE="${STATE_DIR}/tmux-state.json"
+TMUX_SESSION="${CLAUDE_TMUX_SESSION:-claude}"
+SAVE_INTERVAL="${CLAUDE_TMUX_SAVE_INTERVAL:-300}"  # seconds, default 5 min
+
+# Absolute path to this script. Hooks and crontab entries run outside our PATH,
+# so they must reference us by absolute path -- not by bare name, and not by a
+# guessed install location (this ships from the og plugin's bin/, not ~/.local/bin).
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+
+# --- Helpers ---
+
+die() { echo "error: $*" >&2; exit 1; }
+
+require_tmux() {
+  command -v tmux &>/dev/null || die "tmux is not installed"
+}
+
+require_jq() {
+  command -v jq &>/dev/null || die "jq is not installed"
+}
+
+# Get the Claude session name running in a given pane by reading its command line.
+# Falls back to checking tmux pane title and window name.
+get_claude_session_name() {
+  local pane_id="$1"
+  local pane_pid
+
+  pane_pid=$(tmux display-message -t "$pane_id" -p '#{pane_pid}' 2>/dev/null) || return 1
+
+  # Find the claude process in this pane's process tree
+  local claude_pid
+  claude_pid=$(pgrep -P "$pane_pid" -f "claude" 2>/dev/null | head -1) || true
+
+  if [[ -z "$claude_pid" ]]; then
+    # Check grandchildren (claude may be under a shell)
+    for child in $(pgrep -P "$pane_pid" 2>/dev/null); do
+      claude_pid=$(pgrep -P "$child" -f "claude" 2>/dev/null | head -1) || true
+      [[ -n "$claude_pid" ]] && break
+    done
+  fi
+
+  if [[ -n "$claude_pid" ]]; then
+    # Look up session name from claude's session files
+    local session_file="${STATE_DIR}/sessions/${claude_pid}.json"
+    if [[ -f "$session_file" ]]; then
+      local session_id
+      session_id=$(jq -r '.sessionId // empty' "$session_file" 2>/dev/null)
+      if [[ -n "$session_id" ]]; then
+        echo "$session_id"
+        return 0
+      fi
+    fi
+
+    # Try to get --name or -n from the command line
+    local cmdline
+    cmdline=$(tr '\0' ' ' < "/proc/${claude_pid}/cmdline" 2>/dev/null) || true
+    if [[ -n "$cmdline" ]]; then
+      # Extract -n or --name argument
+      local name
+      name=$(echo "$cmdline" | grep -oP '(?:--name|-n)\s+\K\S+' 2>/dev/null) || true
+      if [[ -n "$name" ]]; then
+        echo "$name"
+        return 0
+      fi
+    fi
+  fi
+
+  return 1
+}
+
+# Check if a window name was manually set (automatic-rename is off)
+is_named() {
+  local target="$1"
+  local auto
+  auto=$(tmux display-message -t "$target" -p '#{automatic-rename}' 2>/dev/null)
+  [[ "$auto" == "0" ]]
+}
+
+# --- Commands ---
+
+cmd_new() {
+  require_tmux
+  local name="${1:-}"
+
+  # If no name given, prompt for one
+  if [[ -z "$name" ]]; then
+    read -rp "Session name (e.g., scoring, o11y, debugging): " name
+    [[ -z "$name" ]] && die "A session name is required"
+  fi
+
+  # Sanitize name for tmux window naming
+  local window_name="${name}"
+
+  if tmux info &>/dev/null 2>&1; then
+    # We're in a tmux context -- create a new window
+    tmux new-window -n "$window_name" "claude -n '${name}'"
+  else
+    # Not in tmux -- create or attach to the session
+    if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+      tmux new-window -t "$TMUX_SESSION" -n "$window_name" "claude -n '${name}'"
+      tmux attach-session -t "$TMUX_SESSION"
+    else
+      tmux new-session -d -s "$TMUX_SESSION" -n "$window_name" "claude -n '${name}'"
+      tmux attach-session -t "$TMUX_SESSION"
+    fi
+  fi
+}
+
+cmd_save() {
+  require_tmux
+  require_jq
+
+  local entries="[]"
+  local session_name
+  session_name=$(tmux display-message -p '#{session_name}' 2>/dev/null) || die "Not in a tmux session"
+
+  # Iterate over all windows in the current tmux session
+  while IFS=: read -r win_idx win_name auto_rename pane_pid; do
+    local claude_session=""
+
+    # Try to find claude session ID from the process
+    claude_session=$(get_claude_session_name "${session_name}:${win_idx}" 2>/dev/null) || true
+
+    # Build entry
+    local entry
+    entry=$(jq -n \
+      --arg win_idx "$win_idx" \
+      --arg win_name "$win_name" \
+      --arg auto_rename "$auto_rename" \
+      --arg claude_session "$claude_session" \
+      --arg cwd "$(tmux display-message -t "${session_name}:${win_idx}" -p '#{pane_current_path}' 2>/dev/null)" \
+      '{
+        window_index: ($win_idx | tonumber),
+        window_name: $win_name,
+        manually_named: ($auto_rename == "0"),
+        claude_session: $claude_session,
+        cwd: $cwd
+      }')
+
+    entries=$(echo "$entries" | jq --argjson e "$entry" '. + [$e]')
+  done < <(tmux list-windows -t "$session_name" -F '#{window_index}:#{window_name}:#{automatic-rename}:#{pane_pid}')
+
+  # Write state file
+  local state
+  state=$(jq -n \
+    --arg tmux_session "$session_name" \
+    --arg saved_at "$(date -Iseconds)" \
+    --argjson windows "$entries" \
+    '{
+      tmux_session: $tmux_session,
+      saved_at: $saved_at,
+      windows: $windows
+    }')
+
+  echo "$state" > "$STATE_FILE"
+  echo "Saved $(echo "$entries" | jq length) windows to $STATE_FILE"
+}
+
+cmd_restore() {
+  require_tmux
+  require_jq
+
+  [[ -f "$STATE_FILE" ]] || die "No state file found at $STATE_FILE"
+
+  local state
+  state=$(cat "$STATE_FILE")
+  local tmux_session
+  tmux_session=$(echo "$state" | jq -r '.tmux_session')
+  local saved_at
+  saved_at=$(echo "$state" | jq -r '.saved_at')
+  local window_count
+  window_count=$(echo "$state" | jq '.windows | length')
+
+  echo "Restoring $window_count windows from $saved_at"
+
+  # Create or verify tmux session exists
+  local session_exists=false
+  if tmux has-session -t "$tmux_session" 2>/dev/null; then
+    session_exists=true
+  fi
+
+  local first_window=true
+  echo "$state" | jq -c '.windows[]' | while read -r win; do
+    local win_name cwd claude_session manually_named
+    win_name=$(echo "$win" | jq -r '.window_name')
+    cwd=$(echo "$win" | jq -r '.cwd')
+    claude_session=$(echo "$win" | jq -r '.claude_session')
+    manually_named=$(echo "$win" | jq -r '.manually_named')
+
+    # Build the claude command
+    local cmd
+    if [[ -n "$claude_session" && "$claude_session" != "null" ]]; then
+      # Resume specific session
+      cmd="cd '${cwd}' && claude --resume '${claude_session}'"
+    elif [[ "$manually_named" == "true" ]]; then
+      # Named window but no session ID -- start fresh with the window name
+      cmd="cd '${cwd}' && claude -n '${win_name}'"
+    else
+      # Unnamed window -- just start claude
+      cmd="cd '${cwd}' && claude"
+    fi
+
+    if [[ "$first_window" == "true" && "$session_exists" == "false" ]]; then
+      tmux new-session -d -s "$tmux_session" -n "$win_name" -c "$cwd" "bash -c '$cmd'"
+      first_window=false
+    else
+      tmux new-window -t "$tmux_session" -n "$win_name" -c "$cwd" "bash -c '$cmd'"
+    fi
+
+    echo "  OK $win_name -> claude ${claude_session:+--resume $claude_session}"
+  done
+
+  # Attach if not already in tmux
+  if [[ -z "${TMUX:-}" ]]; then
+    tmux attach-session -t "$tmux_session"
+  else
+    echo "Restored. Switch with: tmux switch-client -t $tmux_session"
+  fi
+}
+
+cmd_status() {
+  require_tmux
+  require_jq
+
+  local session_name
+  session_name=$(tmux display-message -p '#{session_name}' 2>/dev/null) || die "Not in a tmux session"
+
+  printf "%-5s %-20s %-8s %-40s %s\n" "WIN" "NAME" "NAMED?" "CLAUDE SESSION" "CWD"
+  printf "%-5s %-20s %-8s %-40s %s\n" "---" "----" "------" "--------------" "---"
+
+  while IFS=: read -r win_idx win_name auto_rename; do
+    local named="no"
+    [[ "$auto_rename" == "0" ]] && named="yes"
+
+    local claude_session
+    claude_session=$(get_claude_session_name "${session_name}:${win_idx}" 2>/dev/null) || claude_session="-"
+
+    local cwd
+    cwd=$(tmux display-message -t "${session_name}:${win_idx}" -p '#{pane_current_path}' 2>/dev/null)
+    # Shorten home prefix
+    cwd="${cwd/#$HOME/\~}"
+
+    printf "%-5s %-20s %-8s %-40s %s\n" "$win_idx" "$win_name" "$named" "$claude_session" "$cwd"
+  done < <(tmux list-windows -t "$session_name" -F '#{window_index}:#{window_name}:#{automatic-rename}')
+}
+
+cmd_install_hooks() {
+  require_tmux
+
+  # Auto-save on window creation/destruction. Reference SELF by absolute path:
+  # tmux hooks do not inherit our PATH.
+  local hook_cmd
+  hook_cmd="run-shell '${SELF} save >/dev/null 2>&1'"
+
+  tmux set-hook -g window-linked "$hook_cmd" 2>/dev/null || true
+  tmux set-hook -g window-unlinked "$hook_cmd" 2>/dev/null || true
+  tmux set-hook -g session-window-changed "$hook_cmd" 2>/dev/null || true
+
+  # Periodic save via cron. Cron's granularity is minutes, so round
+  # CLAUDE_TMUX_SAVE_INTERVAL (seconds) up to at least 1 minute.
+  local cron_min=$(( (SAVE_INTERVAL + 59) / 60 ))
+  (( cron_min < 1 )) && cron_min=1
+  (( cron_min > 59 )) && cron_min=59
+  local cron_entry="*/${cron_min} * * * * ${SELF} save >/dev/null 2>&1"
+
+  echo "Hooks installed for auto-save on window create/destroy."
+  echo "  script: ${SELF}"
+  echo ""
+  echo "For periodic saves (every ${cron_min}m, from CLAUDE_TMUX_SAVE_INTERVAL=${SAVE_INTERVAL}s):"
+  echo "  ${cron_entry}"
+  echo ""
+  echo "Or run:"
+  echo "  (crontab -l 2>/dev/null; echo '${cron_entry}') | crontab -"
+}
+
+# --- Main ---
+
+case "${1:-help}" in
+  new)      shift; cmd_new "$@" ;;
+  save)     cmd_save ;;
+  restore)  cmd_restore ;;
+  status)   cmd_status ;;
+  install-hooks|install) cmd_install_hooks ;;
+  help|-h|--help)
+    echo "claude-tmux: Manage persistent Claude Code tmux sessions"
+    echo ""
+    echo "Commands:"
+    echo "  new [name]       Open a new Claude window (prompts for name if omitted)"
+    echo "  save             Snapshot current window state to disk"
+    echo "  restore          Restore windows from last snapshot"
+    echo "  status           Show current windows and their Claude sessions"
+    echo "  install-hooks    Install tmux auto-save hooks + cron instructions"
+    echo ""
+    echo "Environment:"
+    echo "  CLAUDE_TMUX_SESSION   tmux session name (default: claude)"
+    echo "  CLAUDE_TMUX_SAVE_INTERVAL  save interval in seconds (default: 300)"
+    ;;
+  *)
+    die "Unknown command: $1 (try 'claude-tmux help')"
+    ;;
+esac
