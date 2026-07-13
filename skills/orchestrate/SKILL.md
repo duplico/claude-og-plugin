@@ -97,6 +97,7 @@ If there is **no project overlay**, add one line: *"This repo has no og setup ye
 8. **Review subagent definitions** periodically for accuracy.
 9. **Test-failure accountability** — assume the change caused it until proven otherwise.
 10. **Narrate on issues** — PR created, blocked, complete, and human judgment calls.
+11. **Use the project's tooling** for standardized tasks — the project's own recipe (`just`/`make`/`npm run`/`./bin/*`), not the raw tool. Not a ban: ad-hoc use is fine; a *recurring* raw command is a missing recipe.
 
 ## Delegation
 

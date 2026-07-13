@@ -105,9 +105,11 @@ its universal-orchestrator-rules), then apply this project's specifics below.
 ## Dependency order (if multi-repo)
 <upstream -> downstream graph, or "single repo">
 
-## Project Rules (11+)
-11. <project-specific rule, if any — e.g., "Makefile-first: never call the tool directly">
-12. <...>
+## Project Rules (12+)
+<!-- og owns rules 0-11; do NOT restate them here. "Use the project's task runner" is
+     already universal Rule 11 -- the project's commands go under "Stack & Commands". -->
+12. <project-specific rule, if any -- something an agent could not infer from the repo>
+13. <...>
 
 ## GitHub
 - Slug: <owner/repo>
