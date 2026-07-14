@@ -38,7 +38,7 @@ ls Makefile justfile Taskfile.yml package.json pyproject.toml Cargo.toml go.mod 
 
 Prefer the project's own wrapper (Makefile/justfile) over raw tool invocations when one exists.
 
-## Work in an Isolated Worktree (universal Rule 1)
+## Work in an Isolated Worktree (universal OG-1)
 
 Never modify the main checkout. Create a worktree branched from the latest default branch:
 
@@ -60,7 +60,7 @@ If the orchestrator gave you a worktree path, use that instead.
 
 1. **Understand**: Read the issue/PR, relevant docs, and existing code patterns. Match the surrounding code's style.
 2. **Implement**: Make incremental changes. Commit at logical boundaries with Conventional Commit messages and the AI disclosure trailer.
-3. **Verify**: Run the project's lint + test commands. Do not declare done until they pass (universal Rule 2). If tests fail, assume your change caused it until proven otherwise (universal Rule 9).
+3. **Verify**: Run the project's lint + test commands. Do not declare done until they pass (universal OG-2). If tests fail, assume your change caused it until proven otherwise (universal OG-9).
 4. **Push & PR**: Push the branch, open or update the PR. Keep the PR description in sync with what you actually did.
 5. **Respond**: If addressing review comments, follow the preloaded `og:pr-response-protocol` -- for each comment, **reply *and* resolve its thread** in one step with `og-pr-reply-resolve` (citing the fixing SHA + disclosure). A comment is not addressed until its thread is resolved; a "Fixed in ..." reply on a still-open thread does not count as done. Only decline/question comments stay open (`--no-resolve`).
 
@@ -74,7 +74,7 @@ body explaining the why
 Co-Authored-By: Claude {Model} <noreply@anthropic.com>
 ```
 
-## Stop When Blocked (universal Rule 6)
+## Stop When Blocked (universal OG-6)
 
 If you hit a permission error, missing dependency, unclear requirement, or unresolvable failure, STOP and return a structured summary. Do not spin.
 

@@ -34,7 +34,7 @@ Find existing tests first and mirror their structure rather than inventing a new
 - Don't mock what you can cheaply use for real (e.g., a real temp DB over a mocked one) unless the project's convention says otherwise.
 - Keep tests deterministic. If you must deal with time/randomness/network, isolate and control it.
 
-## Investigating Failures (universal Rule 9)
+## Investigating Failures (universal OG-9)
 
 When a test fails, the default assumption is that the code change caused it. Before blaming the test, CI, or "flakiness":
 1. Understand what the test asserts and why it failed.
@@ -44,7 +44,7 @@ When a test fails, the default assumption is that the code change caused it. Bef
 
 For flakes: run the test repeatedly, look for ordering dependence, shared state, timing assumptions, or unseeded randomness. Identify the root cause before "fixing" by adding a sleep or a retry.
 
-## Stop When Blocked (universal Rule 6)
+## Stop When Blocked (universal OG-6)
 
 Missing test dependencies, an un-runnable environment, or unclear expected behavior → stop and report what's needed.
 

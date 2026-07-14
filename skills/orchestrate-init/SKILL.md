@@ -99,17 +99,32 @@ its universal-orchestrator-rules), then apply this project's specifics below.
 | og:just-expert | justfile authoring and review |
 <...any generated project-local domain agents...>
 
+## Subject repos
+<!-- REQUIRED. The repo(s) this overlay is about. Paths relative to the repo holding .claude/;
+     `.` for that repo itself. PREFIX is this repo's uppercase slug ([A-Z][A-Z0-9]*) -- it
+     namespaces the repo's rules below, so they can never collide with OG-* or another repo's.
+     /og:refresh reads this table. -->
+
+| Path | Prefix | Slug | Default branch |
+|---|---|---|---|
+| `.` | `<PREFIX>` | `<owner/repo>` | `<branch>` |
+
 ## Repository layout
 <key directories and what lives in them>
 
 ## Dependency order (if multi-repo)
 <upstream -> downstream graph, or "single repo">
 
-## Project Rules (12+)
-<!-- og owns rules 0-11; do NOT restate them here. "Use the project's task runner" is
-     already universal Rule 11 -- the project's commands go under "Stack & Commands". -->
-12. <project-specific rule, if any -- something an agent could not infer from the repo>
-13. <...>
+## Project Rules
+<!-- Rules are namespaced by the repo that OWNS them: <PREFIX>-1, <PREFIX>-2, ... starting at 1.
+     Do NOT restate an OG-* rule -- the plugin already guarantees it.
+     Do NOT restate another repo's rule -- CITE it ("see DEPLOY-3"). -->
+`<PREFIX>`-1. <something an agent could not infer from the repo>
+`<PREFIX>`-2. <...>
+
+<!-- Replace `<PREFIX>` with the repo's real uppercase slug (DEPLOY-1., SCORING-1., ...).
+     Left literal, a bare <PREFIX> is parsed as an HTML tag by GitHub-flavored Markdown and
+     renders as nothing -- the placeholder silently disappears. -->
 
 ## GitHub
 - Slug: <owner/repo>

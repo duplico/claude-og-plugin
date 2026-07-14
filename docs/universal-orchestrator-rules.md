@@ -1,14 +1,12 @@
 # Universal Orchestrator Rules
 
-These rules apply to ALL orchestrators using the `og` plugin. They are numbered consistently so "Rule 6" means the same thing everywhere. Rule 0 is the most critical.
-
-Project-specific rules start at Rule 12 and are numbered per project.
+These rules apply to ALL orchestrators using the `og` plugin. They are **prefixed `OG-`** so a citation like `OG-6` means the same thing everywhere and can never be confused with a project's own rule. `OG-0` is the most critical.
 
 ---
 
-## Universal Rules (0-11)
+## Universal Rules (OG-*)
 
-### 0. Never Merge PRs - Absolute Rule
+### OG-0. Never Merge PRs - Absolute Rule
 
 **Orchestrators and subagents must NEVER merge pull requests.** This is non-negotiable.
 
@@ -26,17 +24,17 @@ When a PR is ready (CI passes, comments addressed):
 
 **Why:** Agents have historically merged PRs using admin rights to bypass approvals. This defeats code review.
 
-### 1. Isolated Worktrees - Always
+### OG-1. Isolated Worktrees - Always
 
 Every implementation task gets its own worktree branched from the latest default branch. This prevents merge conflicts and ensures clean PRs. Subagents must NEVER work in the main repo directory.
 
 The `worktree_cleanup_guard.py` hook (shipped with this plugin) automatically protects against deleting your own CWD when removing a worktree. If the shell is inside the worktree being removed, the hook silently prepends a `cd` out to the parent before the removal command runs.
 
-### 2. CI Must Pass - No Exceptions
+### OG-2. CI Must Pass - No Exceptions
 
 Work is not complete until all CI checks pass. If CI fails, launch a subagent to fix it. Do not mark work as complete until CI passes.
 
-### 3. Never Read Full Subagent Output
+### OG-3. Never Read Full Subagent Output
 
 Subagent output files can be 500KB+. Reading them will flood your context window. Trust the completion summary, or spin out a summarizer agent if you need details.
 
@@ -48,7 +46,7 @@ Subagent output files can be 500KB+. Reading them will flood your context window
 - Use `tail -50` for quick status checks on log files
 - Use `gh pr checks` to verify CI status
 
-### 4. Reply Inline to PR Comments -- and Resolve the Thread
+### OG-4. Reply Inline to PR Comments -- and Resolve the Thread
 
 When subagents address review comments, they must **reply and resolve the thread together** on GitHub, comment by comment. A comment is not addressed until its thread is resolved; a "Fixed in {SHA}" reply left on a still-open thread does not count. Use the coupled helper so the reply and the resolution happen in one call:
 
@@ -59,7 +57,7 @@ og-pr-reply-resolve {OWNER}/{REPO} {PR} {COMMENT_ID} \
 
 Only decline/question comments stay open (add `--no-resolve`); under a `closed-loop-runner`, the runner owns resolution (its Step 7) and developers reply with `--no-resolve`. See the `pr-response-protocol` skill (preloaded by developer agents) for the full rules.
 
-### 5. Explicit Permission Error Reporting
+### OG-5. Explicit Permission Error Reporting
 
 When subagents hit permission errors, they must flag them with specifics:
 - Which tool/command failed
@@ -70,7 +68,7 @@ Example: "Permission denied running `docker compose up` - may need to be in dock
 
 Never report vague "permission denied" without context.
 
-### 6. Blocked Subagent Termination
+### OG-6. Blocked Subagent Termination
 
 **When a subagent cannot proceed, it MUST stop immediately and return a clear summary.**
 
@@ -89,7 +87,7 @@ Subagents MUST:
 
 This ensures the orchestrator (and user) can see what went wrong and take corrective action, rather than having subagents spin for hours with no visibility.
 
-### 7. GitHub as Source of Truth
+### OG-7. GitHub as Source of Truth
 
 GitHub is the canonical state for project work. On session startup, always check:
 - Open issues and their labels/assignees
@@ -98,7 +96,7 @@ GitHub is the canonical state for project work. On session startup, always check
 
 This ensures new sessions can pick up where previous work left off. When reporting status, always include full GitHub URLs.
 
-### 8. Periodically Review Subagent Definitions
+### OG-8. Periodically Review Subagent Definitions
 
 Subagent definition files in `.claude/agents/` (and plugin agents) contain specialized prompts and context. Before launching a subagent, verify its definition is still accurate:
 - Does it reflect the current codebase structure?
@@ -107,7 +105,7 @@ Subagent definition files in `.claude/agents/` (and plugin agents) contain speci
 
 If you notice outdated information during a session, surface it to the user or update the file.
 
-### 9. Test Failure Accountability
+### OG-9. Test Failure Accountability
 
 **When a test or CI check fails after a code change, the default assumption is that the code change caused the failure.**
 
@@ -131,7 +129,7 @@ When tests fail, subagents must:
 
 Never accept "infrastructure issue" or "pre-existing failure" as a conclusion without supporting evidence.
 
-### 10. Issue Narration
+### OG-10. Issue Narration
 
 Comment on issues with high-level progress updates:
 - When PR created
@@ -159,9 +157,9 @@ Format for judgment call documentation:
 
 Read issue comments before starting work to incorporate human feedback.
 
-### 11. Use the Project's Tooling for Standardized Tasks
+### OG-11. Use the Project's Tooling for Standardized Tasks
 
-Invoke standardized tasks through the project's front door -- `just test`, `make lint`, `npm run build` -- rather than hand-rolling the underlying command. The wrapper encodes flags, environment, and container boundaries, and it is what CI runs; bypassing it diverges from CI silently (Rule 2). Discover the project's recipes before your first command, not after a failure (`just --list`, `make help`, `npm run`, the `scripts/` dir -- whatever it uses).
+Invoke standardized tasks through the project's front door -- `just test`, `make lint`, `npm run build` -- rather than hand-rolling the underlying command. The wrapper encodes flags, environment, and container boundaries, and it is what CI runs; bypassing it diverges from CI silently (OG-2). Discover the project's recipes before your first command, not after a failure (`just --list`, `make help`, `npm run`, the `scripts/` dir -- whatever it uses).
 
 **This is not a ban on the underlying tool.** Running it directly is correct when no recipe covers what you need: an ad-hoc query, a one-off container exec, a debug shell. But if a raw command starts recurring, that is a missing recipe -- add one (`og:just-expert`) instead of normalizing the invocation.
 
@@ -169,11 +167,30 @@ Invoke standardized tasks through the project's front door -- `just test`, `make
 
 ---
 
-## Project-Specific Rules (12+)
+## Project Rules (`<PREFIX>-*`)
 
-A project's `<repo>/.claude/skills/<project>-orchestrator/SKILL.md` (generated by `/og:orchestrate-init`) may define additional rules starting at Rule 12. These are numbered independently per project.
+A repo owns its rules and names them with its own prefix: `<PREFIX>-1`, `<PREFIX>-2`, ... numbered from 1. The prefix is declared in the overlay's `## Subject repos` table and must match `[A-Z][A-Z0-9]*`.
 
-When project rules conflict with universal rules, **universal rules win**. Project rules can be stricter, never looser.
+```markdown
+## Subject repos
+
+| Path | Prefix | Slug | Default branch |
+|---|---|---|---|
+| `deployment` | DEPLOY | SouthwestCCDC/deployment | `master` |
+| `infra-deployment` | INFRA | SouthwestCCDC/infra-deployment | `main` |
+
+## Project Rules
+
+DEPLOY-1. **Ops container for everything.** ...
+INFRA-1. **Confirm before touching Vault, DNS, or step-ca.** ...
+```
+
+Rules nest. The set in force is the chain from the outside in: `OG-*` (the plugin), then the enclosing workspace repo if there is one (`SWCCDC-*`), then the repo you are working in (`DEPLOY-*`). Clone `deployment` alone and `DEPLOY-*` still applies; `SWCCDC-*` is simply absent.
+
+- **Universal rules win** where they conflict. Project rules may be stricter, never looser.
+- **A rule is owned by exactly one repo.** Cite another repo's rule (`see DEPLOY-3`); never restate it.
+- **Never restate an `OG-*` rule** as a project rule.
+- The plugin also ships `R1`-`R9` (subagent rules) in `claude-agent-rules.md` -- a separate plugin-owned namespace.
 
 ---
 

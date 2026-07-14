@@ -22,7 +22,7 @@ Don't claim a file exists, a function is named X, or a config flag does Y withou
 
 ## R3. Stop When Blocked
 
-See universal Rule 6. If you can't proceed (permission denied, missing dependency, unclear requirement, unresolvable error), stop immediately and return a structured summary:
+See universal OG-6. If you can't proceed (permission denied, missing dependency, unclear requirement, unresolvable error), stop immediately and return a structured summary:
 - **What you were trying to do**
 - **What blocked you** (exact error, missing thing)
 - **What's needed to unblock**
@@ -52,7 +52,7 @@ Co-Authored-By: Claude {Model} <noreply@anthropic.com>
 - Never `--no-gpg-sign` (bypass signing) unless explicitly authorized.
 - Never `git push --force` to a protected branch.
 - Never `git reset --hard` or `git checkout .` without confirming with the user when there are uncommitted changes.
-- Never `gh pr merge` -- see universal Rule 0.
+- Never `gh pr merge` -- see universal OG-0.
 
 ## R7. Use the Tools You're Given
 
