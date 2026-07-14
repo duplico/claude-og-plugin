@@ -193,7 +193,16 @@ Also flag:
 
 Grep for each; do not eyeball.
 
-1. **A project rule restating a universal rule.** Delete it -- the local copy drifts, and the drift is the bug.
+1. **A project rule restating a plugin rule.** Check **both** rule docs -- the plugin ships two, and an overlay can restate either:
+
+   | Doc | Rules | Audience |
+   |---|---|---|
+   | `docs/universal-orchestrator-rules.md` | `OG-0`..`OG-11` | orchestrators |
+   | `docs/claude-agent-rules.md` | `R1`..`R9` | every subagent |
+
+   Reading only the first is how a live run missed an overlay restating **R1** (AI disclosure) nearly verbatim, exception list and all.
+
+   Then apply the same discipline Phase 2 uses for agents, and for the same reason: **diff before you delete.** A pure restatement becomes a **citation** (`see OG-11`, `see R1`) -- the copy drifts, and the drift is the bug. But a rule that restates a plugin rule *and adds a real project constraint on top* is not a duplicate: keep the delta, drop the copied part, and cite the rest. Deleting the whole rule because its first sentence was familiar throws away the sentence that mattered.
 2. **A rule shaped as a list of forbidden binaries** (`NEVER invoke pytest, ruff, docker compose`). It collides with legitimate ad-hoc use, and an agent that meets a contradiction stops trusting the rule. If the plugin ships a "use the project's tooling" rule, this is a restatement of it -- **look up its number, do not assume it.**
 3. **A blanket "NEVER do X" the overlay itself violates.** Extract each prohibition and grep for its counterexample.
 
