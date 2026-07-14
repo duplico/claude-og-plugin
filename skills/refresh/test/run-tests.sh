@@ -66,6 +66,21 @@ while read -r fn; do
   else bad "table advertises $fn() but no phase calls it" "dead row -- delete the function or wire it in"; fi
 done < <(grep -oE '^\| `[a-z_]+' "$SKILL" | tr -d '|` ')
 
+# Phase 0 must not silently launder a GUESSED subject as a verified one. subjects_of returns
+# rc=2 when it fell back to convention; those overlays are refreshable, but every Phase 6
+# finding against them is only as good as the guess. If the report cannot name them, a
+# convention-inferred run reads as fully verified. Assert Phase 0 both TRACKS and PRINTS them.
+phase0=$(sed -n '/^## Phase 0/,/^## Phase 1/p' "$SKILL")
+grep -q 'rc" -eq 2 \]; then PROVISIONAL+=' <<<"$phase0" \
+  && ok "Phase 0 TRACKS provisional (rc=2) subjects" \
+  || bad "Phase 0 does not track rc=2" "convention-guessed subjects get bucketed with declared ones"
+grep -q "printf 'PROVISIONAL" <<<"$phase0" \
+  && ok "Phase 0 REPORTS the provisional list" \
+  || bad "Phase 0 tracks provisional but never prints it" "a list nobody prints is not a report"
+grep -q 'PROVISIONAL=()' <<<"$phase0" \
+  && ok "PROVISIONAL is initialised (set -u safe)" \
+  || bad "PROVISIONAL never initialised" "unbound under set -u"
+
 # The wiring check must itself be falsifiable: a function that exists but is never called
 # must FAIL. Prove the check can fire.
 if [ "$(calls_in_fence definitely_not_a_real_function)" -eq 0 ]; then

@@ -62,7 +62,7 @@ The gates must **remove** overlays from the list, not merely print about them. A
 
 ```bash
 # (source the lib + og_context, as above)
-OVERLAYS=(); LEGACY=(); UNRESOLVED=()
+OVERLAYS=(); LEGACY=(); UNRESOLVED=(); PROVISIONAL=()
 for d in "$ROOT"/.claude/skills/*-orchestrator; do
   [ -d "$d" ] || continue
   if ! is_og_shaped "$d"; then LEGACY+=("$d"); continue; fi     # Gate A
@@ -71,6 +71,10 @@ for d in "$ROOT"/.claude/skills/*-orchestrator; do
   # `||` here would be a bug: it treats the provisional case as a failure and silently
   # skips every single-repo project.
   if [ "$rc" -eq 1 ]; then UNRESOLVED+=("$d"); continue; fi
+  # rc=2 is refreshable but its subject was GUESSED. Track it separately: every Phase 6
+  # finding against a guessed subject is only as good as the guess, and a report that
+  # cannot say which those are reads as fully verified when it is not.
+  if [ "$rc" -eq 2 ]; then PROVISIONAL+=("$d"); fi
   OVERLAYS+=("$d")
 done
 
@@ -80,13 +84,14 @@ fi
 printf 'refreshable: %s\n' "${OVERLAYS[@]:-}"
 printf 'LEGACY (pre-og; migrate with /og:orchestrate-init, do NOT half-reconcile): %s\n' "${LEGACY[@]:-}"
 printf 'UNRESOLVED (add a "## Subject repos" table): %s\n' "${UNRESOLVED[@]:-}"
+printf 'PROVISIONAL (subject INFERRED, not declared -- findings are only as good as the guess): %s\n' "${PROVISIONAL[@]:-}"
 
 # Gate C -- is .claude/ tracked? If not, `git diff` is empty and Phase 8's review contract is void.
 git -C "$ROOT" ls-files --error-unmatch .claude >/dev/null 2>&1 \
   || echo "WARNING: .claude/ is UNTRACKED -- git diff will show nothing. 'git add' changes explicitly."
 ```
 
-**Report all three lists, always.** A refresh that examined 4 of 6 overlays and said "clean" is a lie. State how many you checked and how many you skipped, and why.
+**Report all four lists, always.** A refresh that examined 4 of 6 overlays and said "clean" is a lie. State how many you checked, how many you skipped and why, and which ones rest on an *inferred* subject -- a PROVISIONAL overlay's Phase 6 findings are only as trustworthy as the convention that guessed its subject, so say so rather than presenting them as verified. The fix is to add a `## Subject repos` table.
 
 `subjects_of` resolves an overlay's subject repo(s) from its `## Subject repos` table (rc=0), falling back to the `<name>-orchestrator -> <name>/` convention or, for a single-repo project, to the repo itself (rc=2, provisional -- say so). It returns rc=1 only when it genuinely cannot tell.
 
