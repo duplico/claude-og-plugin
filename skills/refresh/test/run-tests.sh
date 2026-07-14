@@ -72,7 +72,7 @@ t_rule "nested list"  overlay-nested.md       12
 t_rule "no rules"     overlay-norules.md      ""   # must be empty, not 1
 t_rule "collision"    overlay-collision.md    11
 
-t_path() {  # path, subject, expected
+t_path() {  # $1 = label, $2 = path, $3 = subject dir, $4 = expected classification prefix
   local got; got=$(classify_path "$2" "$3")
   case "$got" in "$4"*) ok "classify_path($2) -> $4" ;;
     *) bad "classify_path($2)" "expected $4, got '$got'" ;; esac
@@ -154,7 +154,13 @@ out=$(migrate_rules "$M" "$OGDIR" --apply 2>&1)
 body=$(sed -n '/^## Project Rules/,/^## Next/p' "$M/SKILL.md")
 grep -q 'THING-1\. \*\*First' <<<"$body" && ok "migrate: rules renumbered to PREFIX-1" || bad "migrate: rules" "$body"
 grep -q 'See THING-2' <<<"$body"          && ok "migrate: own-rule citation -> THING-2"  || bad "migrate: own citation" "$body"
-grep -q 'Required by OG-2' <<<"$body"     && ok "migrate: universal citation -> OG-2"    || bad "migrate: universal citation" "$body"
+# A citation inside og's range is AMBIGUOUS (genuine universal ref, or a stale project ref
+# from before a renumber). It must be LEFT ALONE and flagged -- rewriting it to OG-N would be
+# silently wrong in the stale case. Visible-legacy beats silently-wrong.
+grep -q 'Required by Rule 2' <<<"$body"   && ok "migrate: og-range citation LEFT ALONE (not silently rewritten)" \
+  || bad "migrate: og-range citation" "must NOT be auto-rewritten to OG-2 -- it is ambiguous. Got: $body"
+grep -q 'NOT REWRITTEN' <<<"$out"         && ok "migrate: og-range citation flagged with the OG rule's title" \
+  || bad "migrate: og-range flag" "$out"
 grep -q 'pointer to Rule 99' <<<"$body"   && ok "migrate: ambiguous citation LEFT ALONE" || bad "migrate: ambiguous" "must not be rewritten"
 grep -q 'AMBIGUOUS' <<<"$out"             && ok "migrate: ambiguous citation FLAGGED"    || bad "migrate: ambiguous flag" "$out"
 grep -q '^## Project Rules$' <<<"$body"   && ok "migrate: (12+) header range removed"    || bad "migrate: header" "$body"

@@ -1,6 +1,6 @@
 ---
 name: refresh
-description: "Reconcile an existing repo's og setup with the current plugin: check the plugin version, find duplicated generics, detect rule-numbering collisions, lint for anti-patterns, and fact-check the overlay against the actual repo. Report-first; nothing changes without confirmation."
+description: "Reconcile an existing repo's og setup with the current plugin: check plugin freshness, find duplicated generics, migrate legacy numbered rules to the namespaced scheme, lint for anti-patterns, and fact-check the overlay against the actual repo. Report-first; nothing changes without confirmation."
 disable-model-invocation: true
 argument-hint: "[--report-only]"
 allowed-tools: Read, Glob, Grep, Bash, Edit, Write, Task
@@ -28,8 +28,13 @@ So the checks are **code, not prose** -- shipped in `refresh-lib.sh` beside this
 
 ```bash
 REG="$HOME/.claude/plugins/installed_plugins.json"
-OGDIR=$(jq -r '.plugins | to_entries[] | select(.key|startswith("og@")) | .value[0].installPath' "$REG" | head -1)
-. "$OGDIR/skills/refresh/refresh-lib.sh"
+# Do NOT `head -1` here: with two og installs that silently sources the WRONG library, before
+# og_context's guard ever runs. Require exactly one, or bail to the same OG_ID escape hatch.
+mapfile -t _og < <(jq -r --arg sel "${OG_ID:-}" '.plugins | to_entries[]
+  | select(.key|startswith("og@")) | select($sel == "" or .key == $sel)
+  | .value[0].installPath' "$REG")
+[ "${#_og[@]}" -eq 1 ] || { echo "FATAL: need exactly one og install; set OG_ID=og@<marketplace>"; exit 1; }
+. "${_og[0]}/skills/refresh/refresh-lib.sh"
 og_context || exit 1        # sets ROOT OG OG_ID OG_VER REG; FATALs loudly on any failure
 ```
 
@@ -216,7 +221,7 @@ DRIFT (repo: swccdc-workspace, 6 overlays checked, 0 skipped)
 
   plugin   og 0.1.5 installed, 0.1.7 available              -> update + restart
   agents   just-expert is a stale fork of og:just-expert    -> delete (2-line diff, no domain content)
-  rules    scoring: project rules start at 10; og owns 0-10 -> COLLISION -> renumber to 11+
+  rules    scoring: legacy numbering (12., 13.)            -> migrate to SCORING-1..2
   FACT     scoring: "run `make test`" -> Makefile has no `test` target; CI runs `just test`
   UNVERIF  magpie: 4 paths -- magpie/ not present in this checkout (worktree? wrong cwd?)
   refs     2 docs point at a file that no longer exists

@@ -191,19 +191,25 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
     if printf '%s' "$map" | grep -q "^${cite}="; then
       echo "    cite Rule ${cite} -> $(printf '%s' "$map" | grep "^${cite}=" | cut -d= -f2)  (own rule)"
     elif [ "$cite" -le "$ogmax" ]; then
-      # AMBIGUOUS BY NATURE: a legacy citation inside og's range is either a genuine universal
-      # reference, or a STALE project citation from before some earlier renumber. We cannot
-      # tell from the number alone. Print the universal rule's TITLE so a human spots a
-      # mis-mapping instantly instead of discovering it months later.
+      # AMBIGUOUS BY NATURE, so we do NOT rewrite it. A legacy citation inside og's range is
+      # either a genuine universal reference, or a STALE project citation from before some
+      # earlier renumber -- and the number alone cannot tell them apart.
+      #
+      # Rewriting it to OG-N would be SILENTLY WRONG in the stale case: it would point at a
+      # real universal rule that says something else. Leaving it as "Rule N" leaves it
+      # VISIBLY legacy -- nothing else in a migrated overlay says "Rule N" -- so it stands
+      # out and gets fixed. A visible failure beats a silent wrong answer.
       # Accept both header formats: an older installed plugin still uses "### N." Without this
       # the title comes back empty and the CONFIRM line loses the one thing that makes it
       # actionable -- the human cannot see WHICH rule they are being pointed at.
       local title
       title=$(grep -m1 -E "^### (OG-)?${cite}\." "$og/docs/universal-orchestrator-rules.md" \
               | sed -E "s/^### (OG-)?${cite}\. *//")
-      echo "    cite Rule ${cite} -> OG-${cite}  CONFIRM: \"${title}\""
-      echo "        ^ if that is not what the overlay meant, it is a STALE citation of a"
-      echo "          project rule from before a renumber. Fix it by hand BEFORE applying."
+      echo "    cite Rule ${cite} -> NOT REWRITTEN. Probably OG-${cite}: \"${title}\""
+      echo "        ^ if that IS what the overlay meant, change it to OG-${cite} by hand."
+      echo "          If it is not, it is a stale citation of a project rule from before a"
+      echo "          renumber -- fix it to the right <PREFIX>-N. Either way a human decides:"
+      echo "          rewriting it automatically would be silently wrong in the stale case."
     else
       echo "    cite Rule ${cite} -> *** AMBIGUOUS: not one of this overlay's rules and beyond OG-${ogmax}. Resolve by hand. ***"
     fi
@@ -227,9 +233,8 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
     if printf '%s' "$map" | grep -q "^${cite}="; then
       new=$(printf '%s' "$map" | grep "^${cite}=" | cut -d= -f2)
       perl -pi -e "s/\bRule \Q${cite}\E\b/${new}/g" "$tmp"
-    elif [ "$cite" -le "$ogmax" ]; then
-      perl -pi -e "s/\bRule \Q${cite}\E\b/OG-${cite}/g" "$tmp"
     fi
+    # Citations inside og's range are deliberately LEFT ALONE -- see the reasoning above.
   done < <(grep -oE '\bRule [0-9]+' "$tmp" | grep -oE '[0-9]+' | sort -un)
   # 3. the section header no longer carries a range
   perl -pi -e 's/^## Project Rules \([^)]*\)\s*$/## Project Rules/m' "$tmp"
