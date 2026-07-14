@@ -320,6 +320,42 @@ first=$(grep -oE '^O-[0-9]+' "$O/SKILL.md" | head -1)
   && ok "migrate: out-of-order legacy numbering renumbers in DOCUMENT order (first rule -> O-1)" \
   || bad "migrate: out-of-order renumbered by value, not position" "first rule became $first"
 
+# The OTHER rule syntax. Overlays write rules two ways -- `12. **Title.**` and
+# `**Rule 12 -- Title.**` -- and every fixture above used the first. On the first REAL repo this
+# was pointed at, the distinct-id assertion counted zero for a `**Rule 12**` overlay (its lines
+# start `**SCORING-1`, not `SCORING-1`) and aborted a perfectly valid migration. 44 assertions
+# missed it because they all spoke one dialect.
+B="$TMP/bold-orchestrator"; mkdir -p "$B"
+printf 'og:orchestrate\n\n## Subject repos\n\n| Path | Prefix | Slug | Default branch |\n|---|---|---|---|\n| `.` | B | o/b | `main` |\n\n## Project Rules\n\n**Rule 12 -- Alpha.** x\n\n**Rule 13 -- Beta.** See Rule 12.\n\n## End\n' > "$B/SKILL.md"
+migrate_rules "$B" "$OGDIR" --apply >/dev/null 2>&1
+if grep -q '^\*\*B-1 -- Alpha' "$B/SKILL.md" && grep -q '^\*\*B-2 -- Beta' "$B/SKILL.md" \
+   && grep -q 'See B-1' "$B/SKILL.md"; then
+  ok "migrate: the **Rule N -- Title** syntax migrates (headers AND citations)"
+else
+  bad "migrate: **Rule N** syntax" "$(grep -E '^\*\*|See ' "$B/SKILL.md")"
+fi
+
+# IMPRECISE: docs cite a path the way people SAY it, not the way it sits on disk --
+# `02_network/dns.tf` for `terraform/2026/regionals/02_network/dns.tf`. The file EXISTS; the
+# citation is loose. Calling that DANGLING is how a refresh talks someone into "fixing" correct
+# documentation. Both of these were real false positives on real repos, not invented cases.
+S="$TMP/subj"; ( cd "$S" && git init -q . && git config user.email t@t && git config user.name t )
+mkdir -p "$S/deep/nested/mod" "$S/deep/libdir"
+: > "$S/deep/nested/mod/dns.tf"; : > "$S/deep/libdir/impl.c"
+( cd "$S" && git add -A >/dev/null && git commit -qm x >/dev/null )
+case "$(classify_path 'mod/dns.tf' "$S")" in
+  IMPRECISE*) ok "classify_path: a FILE cited by shorthand is IMPRECISE, not DANGLING" ;;
+  *) bad "classify_path: shorthand file" "got '$(classify_path 'mod/dns.tf' "$S")', want IMPRECISE" ;;
+esac
+case "$(classify_path 'libdir/' "$S")" in
+  IMPRECISE*) ok "classify_path: a DIRECTORY cited by shorthand is IMPRECISE (ls-files lists no dirs)" ;;
+  *) bad "classify_path: shorthand dir" "got '$(classify_path 'libdir/' "$S")', want IMPRECISE" ;;
+esac
+case "$(classify_path 'genuinely/absent.tf' "$S")" in
+  DANGLING*) ok "classify_path: a path that is nowhere is still DANGLING" ;;
+  *) bad "classify_path: absent path" "got '$(classify_path 'genuinely/absent.tf' "$S")', want DANGLING" ;;
+esac
+
 echo
 printf 'pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

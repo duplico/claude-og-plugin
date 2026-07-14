@@ -228,17 +228,20 @@ for ov in "${OVERLAYS[@]}"; do
     < <(subjects_of "$ov" "$ROOT" | cut -f1)      # not `mapfile`: bash 4+, macOS ships 3.2
   while read -r p; do
     [ -n "$p" ] || continue
-    best=""; where=""; missing=""; unseen=""
+    best=""; where=""; missing=""; unseen=""; soft=""; softwhere=""
     for SUB in "${SUBS[@]}"; do
       BASE="$ROOT/$SUB"; [ "$SUB" = "." ] && BASE="$ROOT"
       c=$(classify_path "$p" "$BASE" "$ROOT")
       case "$c" in
-        OK*)       best="$c"; where="$SUB"; break ;;                # resolved somewhere: done
-        SKIP*)     [ -z "$best" ] && { best="$c"; where="$SUB"; } ;;   # a glob is not a file
-        DANGLING*) missing="$missing $SUB" ;;                        # subject SEEN, file absent
-        UNVERIF*)  unseen="$unseen $SUB" ;;                          # subject not checked out
+        OK*)        best="$c"; where="$SUB"; break ;;               # resolved somewhere: done
+        SKIP*)      [ -z "$best" ] && { best="$c"; where="$SUB"; } ;;  # a glob is not a file
+        IMPRECISE*) [ -z "$soft" ] && { soft="$c"; softwhere="$SUB"; } ;;  # exists, cited loosely
+        DANGLING*)  missing="$missing $SUB" ;;                       # subject SEEN, file absent
+        UNVERIF*)   unseen="$unseen $SUB" ;;                         # subject not checked out
       esac
     done
+    # IMPRECISE means the file EXISTS -- it outranks anything that says it does not.
+    [ -z "$best" ] && [ -n "$soft" ] && { best="$soft"; where="$softwhere"; }
     # Only decide once every subject has voted. Letting UNVERIF beat DANGLING as we go would let
     # a subject that is merely NOT CHECKED OUT bury a DANGLING that another subject *proved* --
     # and UNVERIF means "the doc is probably right, you just cannot see it", which would then be
@@ -253,12 +256,14 @@ for ov in "${OVERLAYS[@]}"; do
     printf '%s  [%s:%s] %s\n' "$best" "$(basename "$ov")" "$where" "$p"
   done < <(grep -oE '`[^`]+`' "$ov/SKILL.md" | tr -d '`' \
            | grep -E '^(~/|\./|[A-Za-z0-9_.-]+/)' \
-           | grep -E '\.(md|json|ya?ml|sh|py|tf|toml|cfg|ini|lock)$|/(Dockerfile|Makefile|[Jj]ustfile|Cargo\.toml|go\.mod)$' \
+           | grep -E '\.(md|json|ya?ml|sh|py|tf|toml|cfg|ini|lock)$|/(Dockerfile|Makefile|[Jj]ustfile|Cargo\.toml|go\.mod)$|/$' \
            | sort -u)
 done | grep -v '^OK'
 ```
 
 `classify_path` returns **SKIP** for globs (a routing-table pattern is not a file), **UNVERIF** when the subject repo is not present at all (a worktree or partial clone -- the doc is probably right and you simply cannot see it), and **DANGLING** only for a path genuinely missing from a subject you *can* see.
+
+It also emits **IMPRECISE**: the file *exists*, but the overlay cites it the way people say it rather than the way it sits on disk -- `02_network/dns.tf` for something that actually lives at `terraform/2026/regionals/02_network/dns.tf`. That is a documentation nit, **not** a dangling reference, and the difference matters: reported as DANGLING it invites "fixing" a doc that was correct. (This is not hypothetical. Both real citations of that path in this workspace were reported DANGLING until Phase 6 learned to look deeper.)
 
 A multi-subject overlay can produce both at once, so Phase 6 also emits **DANGLING(partial)**: absent from a subject you *could* see, while another subject was not checked out. It is neither -- calling it UNVERIF buries a finding you actually proved, and calling it DANGLING invites deleting a doc whose file may be sitting in the repo you did not clone. Treat it as "check out the rest, then re-run".
 

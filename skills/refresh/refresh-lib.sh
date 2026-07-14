@@ -68,7 +68,7 @@ subjects_of() {   # $1 = overlay dir, $2 = ROOT ; prints path<TAB>PREFIX<TAB>slu
 }
 
 # ---- Phase 6: classify a referenced path against its SUBJECT repo ----
-classify_path() {  # $1 = path, $2 = subject repo dir, $3 = ROOT (optional). OK|DANGLING|UNVERIF|SKIP
+classify_path() {  # $1 = path, $2 = subject repo dir, $3 = ROOT (optional). OK|IMPRECISE|DANGLING|UNVERIF|SKIP
   local p="$1" base="$2" root="${3:-}" t
   case "$p" in *'*'*) echo "SKIP glob"; return 0 ;; esac      # globs are patterns, not paths
 
@@ -90,7 +90,25 @@ classify_path() {  # $1 = path, $2 = subject repo dir, $3 = ROOT (optional). OK|
     [ -e "$root/${p#./}" ] && { echo "OK"; return 0; }
   fi
 
-  # Subject is present and the path is in neither place: genuinely dangling. This includes a
+  # Before calling it dangling: docs routinely cite a path the way people SAY it, not the way it
+  # sits on disk -- `02_network/dns.tf` for a Terraform module that actually lives at
+  # `terraform/2026/regionals/02_network/dns.tf`. The file exists; the citation is imprecise.
+  # Reporting that as DANGLING is how a refresh talks someone into "fixing" correct documentation,
+  # which this skill is explicitly not allowed to do. Found on the real repo, not a fixture.
+  local hit="" q="${p#./}"
+  if [ "${p#/}" = "$p" ] && [ "${p#\~}" = "$p" ]; then
+    case "$q" in
+      */) hit=$(git -C "$base" ls-files -- "*/${q}*" 2>/dev/null | head -1)
+          [ -z "$hit" ] && [ -n "$root" ] && hit=$(git -C "$root" ls-files -- "*/${q}*" 2>/dev/null | head -1)
+          # we matched a file inside it; report the DIRECTORY the overlay actually cited
+          [ -n "$hit" ] && hit="${hit%%/"${q}"*}/${q}" ;;
+      *)  hit=$(git -C "$base" ls-files -- "*/$q" 2>/dev/null | head -1)
+          [ -z "$hit" ] && [ -n "$root" ] && hit=$(git -C "$root" ls-files -- "*/$q" 2>/dev/null | head -1) ;;
+    esac
+  fi
+  [ -n "$hit" ] && { echo "IMPRECISE (exists at: $hit)"; return 0; }
+
+  # Subject is present, and the path is nowhere in it: genuinely dangling. This includes a
   # missing intermediate directory -- a module renamed upstream is exactly what Phase 5 exists
   # to catch, and must not be excused as "could not verify".
   echo "DANGLING"
@@ -132,11 +150,39 @@ rule_prefix_of() {   # $1 = overlay dir. Prints the declared prefix from ## Subj
     | sed 's/^| *//; s/ *| */\t/g' | tr -d '`' | cut -f2 | grep -E '^[A-Z][A-Z0-9]*$' | head -1
 }
 
+suggest_prefix() {   # $1 = overlay dir. A CANDIDATE prefix for a table that has none.
+  # Only ever a suggestion. An overlay predating the namespaced scheme has a Subject repos table
+  # with no Prefix column, and migrate_rules rightly refuses to invent one -- but refusing while
+  # saying nothing useful leaves the user stuck, which is what happened on the first real repo
+  # this skill was pointed at (six overlays, six FATALs, no remedy). Propose; let a human confirm.
+  local name
+  name=$(basename -- "$1"); name=${name%-orchestrator}
+  local whole first
+  whole=$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9')
+  first=$(printf '%s' "${name%%-*}" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9')
+  # Whole name if it fits; else the FIRST segment. Never a truncation artifact:
+  # swccdc-workspace -> SWCCDC, not SWCCDCWORKSP. ha-1512 -> HA1512 (it fits).
+  if [ "${#whole}" -le 12 ]; then printf '%s' "$whole"; else printf '%s' "$first"; fi
+}
+
+needs_prefix() {     # $1 = overlay dir. rc=0 if it has legacy rules but NO prefix declared.
+  local n
+  n=$(awk '/^## Project Rules/{f=1;next} /^## /{if(f)exit} f' "$1/SKILL.md" 2>/dev/null \
+      | grep -cE '^[0-9]+\. \*\*')
+  [ "$n" -gt 0 ] && [ -z "$(rule_prefix_of "$1")" ]
+}
+
 migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
   local ov="$1" og="$2" mode="${3:---dry}"
   local f="$ov/SKILL.md"
   local prefix; prefix=$(rule_prefix_of "$ov")
-  [ -n "$prefix" ] || { echo "FATAL: $ov has no Prefix in its ## Subject repos table"; return 1; }
+  if [ -z "$prefix" ]; then
+    echo "FATAL: $ov has no Prefix in its ## Subject repos table"
+    echo "       It has $(awk '/^## Project Rules/{f=1;next} /^## /{if(f)exit} f' "$f" | grep -cE '^[0-9]+\. \*\*') legacy rule(s) to migrate, and a prefix is not something this can guess."
+    echo "       SUGGESTED: $(suggest_prefix "$ov")   -- add a Prefix column to the table, then re-run:"
+    echo "         | Path | Prefix | Slug | Default branch |"
+    return 1
+  fi
 
   # og's own rule range -- a citation at or below this is a UNIVERSAL rule, not a project one.
   # Accept BOTH header formats: the installed plugin may predate the OG-* namespacing.
@@ -297,7 +343,8 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
   # check still passed, because it counts lines.
   local distinct
   distinct=$(awk '/^## Project Rules/{f=1;next} /^## /{if(f)exit} f' "$tmp" \
-             | grep -oE "^${prefix}-[0-9]+" | sort -u | wc -l | tr -d ' ')
+             | grep -oE "^${prefix}-[0-9]+|^\\*\\*${prefix}-[0-9]+" | tr -d '*' \
+             | sort -u | wc -l | tr -d ' ')
   if [ "$got" -ne "$want" ] || [ "$outside" -ne 0 ] || [ "$fence_before" != "$fence_after" ] \
      || [ "$distinct" -ne "$want" ]; then
     echo "    ABORT: rewrote $got of $want rules ($distinct distinct), $outside line(s) OUTSIDE the section"
