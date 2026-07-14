@@ -1,4 +1,0 @@
-## Stack
-nothing here
-
-## Next

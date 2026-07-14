@@ -42,10 +42,19 @@ subjects_of() {   # $1 = overlay dir, $2 = ROOT ; prints path<TAB>PREFIX<TAB>slu
   if [ -n "$rows" ]; then printf '%s\n' "$rows"; return 0; fi
   name=$(basename "$1" -orchestrator)
   if [ -d "$root/$name" ]; then printf '%s\t?\t?\t?\n' "$name"; return 2; fi  # 2 = provisional
-  # A single-repo project's overlay is ABOUT the repo it lives in. Without this, every
-  # single-repo project -- which is most of them -- resolves to UNRESOLVED and the skill
-  # checks nothing at all, while reporting no drift.
-  printf '.\t?\t?\t?\n'; return 2
+
+  # The "." fallback is ONLY for an overlay that is plausibly about the root repo itself --
+  # i.e. its name matches the root's basename, or it is the only overlay here (a single-repo
+  # project). Falling back to "." unconditionally is a silent wrong answer: in a WORKTREE where
+  # magpie/ simply is not checked out, magpie-orchestrator would be declared to be about the
+  # WORKSPACE, and Phase 6 would then resolve magpie's paths against the wrong repo and
+  # misclassify every one of them. An absent subject is UNRESOLVED, not "the root".
+  local nov=0 d
+  for d in "$root"/.claude/skills/*-orchestrator; do [ -d "$d" ] && nov=$((nov + 1)); done
+  if [ "$name" = "$(basename "$root")" ] || [ "$nov" -eq 1 ]; then
+    printf '.\t?\t?\t?\n'; return 2
+  fi
+  return 1   # cannot tell -- the caller must report it, not guess
 }
 
 # ---- Phase 3: lowest project-rule number, SCOPED to the ## Project Rules section ----

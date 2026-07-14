@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2015,SC1090,SC2016,SC2034
+# shellcheck disable=SC2015,SC1090,SC2016
 #   SC2015 -- the `cond && ok "..." || bad "..."` assertion idiom is safe here: ok() is an echo
 #             plus a counter increment and cannot fail, so bad() never runs on a passing check.
 #   SC1090 -- $LIB is resolved at runtime relative to this script; shellcheck cannot follow it.
 #   SC2016 -- the single-quoted printf strings contain backticks ON PURPOSE (they are markdown
 #             fixtures); expansion is exactly what we do not want.
-#   SC2034 -- OG looks unused but is read by universal_upper_bound() via dynamic scope.
 # run-tests.sh -- guard against the one bug this skill keeps having.
 #
 # THREE adversarial execution rounds all found the same shape:
@@ -32,7 +31,6 @@ command -v jq >/dev/null || { echo "FATAL: jq is required to run these tests" >&
 HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 SKILL="$HERE/../SKILL.md"
 LIB="$HERE/../refresh-lib.sh"
-FIX="$HERE/fixtures"                 # static fixtures, committed
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/og-refresh-test.XXXXXX") \
   || { echo "FATAL: cannot create a temp dir" >&2; exit 1; }
 trap 'rm -rf "$TMP"' EXIT   # generated fixtures (incl. a git repo) -- NEVER committed
@@ -110,6 +108,11 @@ fi
 
 # The \b word-boundary bug must not come back: it is GNU-only, matches nothing on BSD, and an
 # empty citation set reads as "no citations" while the rules get rewritten anyway.
+# NOTE THE ESCAPING, and do not "simplify" it: in a double-quoted shell string, \\\\b becomes
+# the grep pattern \\b, in which \\ matches a LITERAL BACKSLASH. So this matches the real bug
+# (a single backslash-b inside a grep -E pattern). Verified by reintroducing the genuine bug:
+# the harness fails, and passes again on restore. A version that searched for a doubled
+# backslash would be a regression test that cannot catch its own regression.
 if grep -rq "grep -oE '\\\\b" "$HERE/.." ; then
   bad "GNU-only \\b in a grep -E pattern" "BSD/macOS grep -E does not support \\b -- it would match nothing and silently skip every citation"
 else
