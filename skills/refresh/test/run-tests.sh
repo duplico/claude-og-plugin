@@ -93,6 +93,17 @@ t_subj_root() {
 }
 t_subj_root
 
+# universal_upper_bound must work against BOTH header formats. The section header lost its
+# range in the namespacing change; a helper that grepped it would silently return empty.
+OGDIR0=$(jq -r '.plugins | to_entries[] | select(.key|startswith("og@")) | .value[0].installPath' \
+         "$HOME/.claude/plugins/installed_plugins.json" | head -1)
+for og_try in "$OGDIR0" "$HERE/../../.."; do
+  [ -f "$og_try/docs/universal-orchestrator-rules.md" ] || continue
+  OG="$og_try"; n=$(universal_upper_bound)
+  [ -n "$n" ] && ok "universal_upper_bound($(basename "$og_try")) = $n" \
+    || bad "universal_upper_bound($(basename "$og_try"))" "returned EMPTY -- would read as 'no universal rules'"
+done
+
 # --- migration ---
 OGDIR=$(jq -r '.plugins | to_entries[] | select(.key|startswith("og@")) | .value[0].installPath' \
         "$HOME/.claude/plugins/installed_plugins.json" | head -1)

@@ -28,10 +28,12 @@ og_context() {   # sets ROOT OG OG_ID OG_VER REG ; exits on any failure
   export ROOT OG OG_ID OG_VER REG
 }
 
-# Upper bound of the plugin's universal rule range. Reads it; never hardcodes it.
+# Highest OG-N the plugin ships. Read it from the RULE HEADERS, not the section header: the
+# section header no longer carries a range (it is now "## Universal Rules (OG-*)"), so grepping
+# it for a number returns EMPTY -- which would silently read as "no universal rules".
 universal_upper_bound() {
-  grep -m1 '^## Universal Rules' "$OG/docs/universal-orchestrator-rules.md" \
-    | grep -oE '[0-9]+\)' | tr -d ')'
+  grep -oE '^### (OG-)?[0-9]+\.' "$OG/docs/universal-orchestrator-rules.md" \
+    | grep -oE '[0-9]+' | sort -n | tail -1
 }
 
 # ---- Gate A: og-shaped? (\bog: anchored -- 'Changelog:' must NOT match) ----
@@ -40,7 +42,7 @@ is_og_shaped() {  # $1 = overlay dir
 }
 
 # ---- Gate B: resolve subject repos from the declaration (EXECUTABLE) ----
-subjects_of() {   # $1 = overlay dir, $2 = ROOT ; prints path<TAB>slug<TAB>branch
+subjects_of() {   # $1 = overlay dir, $2 = ROOT ; prints path<TAB>PREFIX<TAB>slug<TAB>branch
   local f="$1/SKILL.md" root="$2" name rows
   rows=$(awk '/^## Subject repos/{f=1;next} /^## /{f=0} f' "$f" \
          | grep -E '^\|' | grep -viE '^\| *Path' | grep -vE '^\|[ :-]*\|[ :-]*\|' \
