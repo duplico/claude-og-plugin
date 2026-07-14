@@ -203,6 +203,12 @@ cat > "$M/SKILL.md" <<'EOF'
 14. **Third.** Legacy pointer to Rule 99.
 
 ## Next
+
+A fenced example quoting the OLD numbering, deliberately:
+
+```markdown
+13. **Second.** See Rule 12 here.
+```
 EOF
 out=$(migrate_rules "$M" "$OGDIR" --apply 2>&1)
 body=$(sed -n '/^## Project Rules/,/^## Next/p' "$M/SKILL.md")
@@ -217,6 +223,17 @@ grep -q 'NOT REWRITTEN' <<<"$out"         && ok "migrate: og-range citation flag
   || bad "migrate: og-range flag" "$out"
 grep -q 'pointer to Rule 99' <<<"$body"   && ok "migrate: ambiguous citation LEFT ALONE" || bad "migrate: ambiguous" "must not be rewritten"
 grep -q 'AMBIGUOUS' <<<"$out"             && ok "migrate: ambiguous citation FLAGGED"    || bad "migrate: ambiguous flag" "$out"
+
+# Fenced content is quoted on purpose (examples, fixtures, history). Migration must not change one
+# byte of it. The header pass was fence-aware from the start; the CITATION pass was not, so a fence
+# saying "See Rule 12" got rewritten to "See THING-1" -- corrupting a block that quoted history
+# deliberately. Assert the fence is byte-identical, not merely that no rule HEADER leaked.
+fence=$(awk '/^```/{f=!f;next} f' "$M/SKILL.md")
+if [ "$fence" = '13. **Second.** See Rule 12 here.' ]; then
+  ok "migrate: FENCED content byte-identical (header AND citation passes skip fences)"
+else
+  bad "migrate: fenced content was rewritten" "expected '13. **Second.** See Rule 12 here.' got '$fence'"
+fi
 grep -q '^## Project Rules$' <<<"$body"   && ok "migrate: (12+) header range removed"    || bad "migrate: header" "$body"
 # must FATAL, not guess, when og's range is unreadable
 fat=$(migrate_rules "$M" /nonexistent --dry 2>/dev/null || true)

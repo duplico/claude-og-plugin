@@ -237,11 +237,15 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
 
   # Citations: a separate, explicit pass, only for numbers in the map (this overlay is own
   # rules). Bounded by the map, so a number not in it is never touched.
+  # FENCE-AWARE, like the header pass above. `perl -pi` alone rewrites the whole file, so a
+  # fenced example quoting the OLD numbering ("See Rule 12") got rewritten into the new scheme
+  # -- corrupting a code block that was quoting history on purpose. The header pass already
+  # skipped fences; this one did not, which is worse than either being wrong consistently.
   local n new2
   for n in $nums; do
     new2=$(printf '%s' "$map" | grep "^${n}=" | cut -d= -f2)
-    perl -pi -e "s/(^|[^A-Za-z0-9_])Rule ${n}\b/\${1}${new2}/g" "$tmp" 2>/dev/null \
-      || perl -pi -e "s/(^|[^A-Za-z0-9_])Rule ${n}(?![0-9])/\$1${new2}/g" "$tmp"
+    perl -pi -e "if (/^\`\`\`/) { \$fence = !\$fence }
+                 elsif (!\$fence) { s/(^|[^A-Za-z0-9_])Rule ${n}(?![0-9])/\${1}${new2}/g }" "$tmp"
   done
 
   # ASSERT: the rule count survived, and NOTHING outside the section was renamed.
@@ -254,8 +258,15 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
       /^## Project Rules/ {inr=1; next} /^## / {inr=0}
       !inr && $0 ~ ("^" p "-[0-9]+\\.") {c++}
       END {print c+0}' "$tmp")
-  if [ "$got" -ne "$want" ] || [ "$outside" -ne 0 ]; then
-    echo "    ABORT: rewrote $got of $want rules, and $outside line(s) OUTSIDE the rules section"
+  # Fenced content is quoted on purpose -- examples, fixtures, history. Migration must not change
+  # one byte of it. The check above cannot see this: it `next`s past fences, so it was blind to
+  # exactly the corruption that shipped. Assert the invariant directly instead.
+  local fence_before fence_after
+  fence_before=$(awk '/^```/{f=!f;next} f' "$f")
+  fence_after=$(awk '/^```/{f=!f;next} f' "$tmp")
+  if [ "$got" -ne "$want" ] || [ "$outside" -ne 0 ] || [ "$fence_before" != "$fence_after" ]; then
+    echo "    ABORT: rewrote $got of $want rules, $outside line(s) OUTSIDE the rules section"
+    [ "$fence_before" != "$fence_after" ] && echo "           and it MODIFIED FENCED CONTENT"
     echo "           -- refusing to write a corrupted file"
     rm -f "$tmp"; return 1
   fi

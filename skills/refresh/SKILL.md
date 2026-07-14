@@ -150,10 +150,14 @@ done
 
 - reads the prefix from the overlay's `## Subject repos` table, and **FATALs** if absent rather than inventing one;
 - builds an **explicit old->new map** and applies only that map -- never a blind substitution;
-- classifies each citation into one of three buckets, and **refuses to guess**:
-  - a number in the map -> **this overlay's own rule** (`Rule 13` -> `SCORING-2`);
-  - a number within og's range and not in the map -> **universal** (`Rule 2` -> `OG-2`);
-  - anything else -> ***AMBIGUOUS***, flagged for a human. It is not rewritten.
+- classifies each citation into one of three buckets, and **rewrites only the first**:
+  - a number in the map -> **this overlay's own rule**. Rewritten: `Rule 13` -> `SCORING-2`.
+  - a number in og's range and not in the map -> **probably universal** (`Rule 2` -> `OG-2`).
+    Reported with the OG rule's title so a human can confirm, and **left alone**. It only
+    *probably* means OG-2: the old scheme told projects to start at 12 precisely so they would
+    not collide with og's 0-11, so a low number is more likely a stale citation than an
+    intentional one. Rewriting on a likelihood is the guess that namespacing exists to kill.
+  - anything else -> ***AMBIGUOUS***. Flagged for a human, **left alone**.
 - **FATALs if it cannot read og's rule range**, rather than misclassifying every citation;
 - **asserts the rule count survived** and aborts rather than writing a half-migrated file. A partial rewrite that reads as success is the failure mode this skill exists to prevent.
 
