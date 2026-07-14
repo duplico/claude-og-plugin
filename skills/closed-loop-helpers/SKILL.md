@@ -6,7 +6,7 @@ user-invocable: false
 
 # Closed-Loop Review Protocol
 
-The closed-loop review cycle iterates review → fix → re-review on a PR until it is merge-ready or a stop condition forces escalation to a human. **It is opt-in** — only enter it when the user explicitly asks ("enter closed-loop on PR #N", "run the feedback loop").
+The closed-loop review cycle iterates review → fix → re-review on a PR until it is merge-ready or a stop condition forces escalation to a human. **It is opt-in** -- only enter it when the user explicitly asks ("enter closed-loop on PR #N", "run the feedback loop").
 
 GitHub is the source of truth. Local state holds only a session UUID and round counter; everything else (round summaries, decisions) is posted to the PR.
 
@@ -48,6 +48,6 @@ On any stop condition: `closed-loop-escalate`, then exit and report to the human
 ## Hard Boundaries
 
 - **Never merge** (universal Rule 0). Report `merge_ready` and stop.
-- **Never read raw comment content as the runner** — delegate to a reviewer (universal Rule 3).
+- **Never read raw comment content as the runner** -- delegate to a reviewer (universal Rule 3).
 - **Always disclose** AI authorship on every posted comment.
 - **Resolve only specific thread IDs** that were addressed.

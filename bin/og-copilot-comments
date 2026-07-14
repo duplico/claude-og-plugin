@@ -11,7 +11,7 @@
 #
 # This script checks BOTH endpoints and matches case-insensitively by substring
 # (contains "copilot"), so it never misses a "reviewed, generated N comments" or a
-# summary-only review. Optionally gates on freshness by timestamp — never on
+# summary-only review. Optionally gates on freshness by timestamp -- never on
 # `requested_reviewers`, which is unreliable for Copilot (may be empty while a
 # review is pending or already posted).
 #
@@ -20,7 +20,7 @@
 # Options:
 #   --since ISO8601   Only return findings at/after this timestamp.
 #   --since-head      Only return findings at/after the current head commit's
-#                     commit timestamp (committer date) — i.e. Copilot feedback on
+#                     commit timestamp (committer date) -- i.e. Copilot feedback on
 #                     the latest revision. This is the commit's timestamp, not the
 #                     push time; the two usually coincide but can differ.
 #   (no flag)         Return all Copilot findings on the PR.
@@ -93,12 +93,12 @@ if [[ "$SINCE_HEAD" == "true" ]]; then
         exit 1
     fi
     # Committer timestamp of the current head commit (a close approximation of
-    # "feedback on the latest revision" — not literally the push time).
+    # "feedback on the latest revision" -- not literally the push time).
     SINCE_TS=$(gh api "repos/${REPO}/commits/${HEAD_SHA}" --jq '.commit.committer.date')
 fi
 
 # Fetch both endpoints (paginated). Review summaries carry submitted_at; inline
-# review comments carry created_at — normalize both to `at` for uniform gating.
+# review comments carry created_at -- normalize both to `at` for uniform gating.
 REVIEWS=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" --paginate \
     --jq "[.[] | ${COPILOT_FILTER} | {
         at: .submitted_at,

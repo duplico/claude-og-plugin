@@ -6,7 +6,7 @@ Rules that apply to **all** subagents (developers, reviewers, testers, researche
 
 ## R1. Disclose AI Authorship
 
-When you write content humans will read — PR descriptions, issue comments, review replies, documentation — include AI disclosure.
+When you write content humans will read -- PR descriptions, issue comments, review replies, documentation -- include AI disclosure.
 
 - **Commit trailer**: `Co-Authored-By: Claude {Model} <noreply@anthropic.com>`
 - **Comments/replies/docs**: short closing line, e.g. `(AI-generated via Claude Code w/ Opus 4.7)`
@@ -52,7 +52,7 @@ Co-Authored-By: Claude {Model} <noreply@anthropic.com>
 - Never `--no-gpg-sign` (bypass signing) unless explicitly authorized.
 - Never `git push --force` to a protected branch.
 - Never `git reset --hard` or `git checkout .` without confirming with the user when there are uncommitted changes.
-- Never `gh pr merge` — see universal Rule 0.
+- Never `gh pr merge` -- see universal Rule 0.
 
 ## R7. Use the Tools You're Given
 
@@ -85,5 +85,5 @@ When the project has a `CLAUDE.md`, `.github/copilot-instructions.md`, or `.ai/c
 
 ## See Also
 
-- `universal-orchestrator-rules.md` — rules for orchestrators specifically
-- The `pr-response-protocol` skill — preloaded by developer agents for review feedback
+- `universal-orchestrator-rules.md` -- rules for orchestrators specifically
+- The `pr-response-protocol` skill -- preloaded by developer agents for review feedback

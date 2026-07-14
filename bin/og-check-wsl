@@ -27,7 +27,7 @@ if [ -t 1 ]; then
 else
     G=""; Y=""; R=""; B=""; N=""
 fi
-OK="${G}✓${N}"; WARN="${Y}!${N}"; FAIL="${R}✗${N}"
+OK="${G}OK${N}"; WARN="${Y}!${N}"; FAIL="${R}x${N}"
 
 # --- probes -----------------------------------------------------------------
 
@@ -45,7 +45,7 @@ burnt_toast_present() {
 
 # --- report -----------------------------------------------------------------
 
-echo "${B}og-check-wsl${N}  —  WSL2 / Windows interop diagnostic"
+echo "${B}og-check-wsl${N}  --  WSL2 / Windows interop diagnostic"
 echo "================================================================"
 
 # WSL detection
@@ -60,7 +60,7 @@ fi
 if [ -d /mnt/wslg ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
     echo "  $OK  WSLg                   /mnt/wslg present (notify-send + GUI apps work)"
 else
-    echo "  $WARN  WSLg                   not detected — notify-send may not surface a toast"
+    echo "  $WARN  WSLg                   not detected -- notify-send may not surface a toast"
 fi
 
 # systemd
@@ -68,14 +68,14 @@ if pidof systemd >/dev/null 2>&1 || \
    systemctl is-system-running >/dev/null 2>&1; then
     echo "  $OK  systemd                running"
 else
-    echo "  $WARN  systemd                not running — enable in /etc/wsl.conf if you need sshd/services"
+    echo "  $WARN  systemd                not running -- enable in /etc/wsl.conf if you need sshd/services"
 fi
 
 # sshd (relevant for Desktop app SSH-to-WSL2)
 if ss -tlnp 2>/dev/null | grep -q ':22[[:space:]]'; then
     echo "  $OK  sshd                   listening on :22 (Desktop app can attach)"
 else
-    echo "  $WARN  sshd                   not listening on :22 — Desktop app SSH mode won't reach you"
+    echo "  $WARN  sshd                   not listening on :22 -- Desktop app SSH mode won't reach you"
 fi
 
 # Notification path
@@ -86,14 +86,14 @@ if have notify-send; then
     echo "  $OK  notify-send            $(path_of notify-send)  (primary, via WSLg)"
     NOTIFY_PRIMARY="notify-send"
 else
-    echo "  $FAIL  notify-send            not installed — \`sudo apt install libnotify-bin\`"
+    echo "  $FAIL  notify-send            not installed -- \`sudo apt install libnotify-bin\`"
     NOTIFY_PRIMARY=""
 fi
 
 if have powershell.exe; then
     echo "  $OK  powershell.exe         $(path_of powershell.exe)  (fallback)"
     if burnt_toast_present; then
-        echo "  $OK  BurntToast module      installed — modern toast UI"
+        echo "  $OK  BurntToast module      installed -- modern toast UI"
     else
         echo "  $WARN  BurntToast module      not installed (System.Windows.Forms balloon used instead)"
         echo "                            install: powershell.exe -c \"Install-Module BurntToast -Scope CurrentUser -Force\""
@@ -108,12 +108,12 @@ echo "${B}URL / browser${N} (Claude opens previews via cmd.exe /c start)"
 if have cmd.exe; then
     echo "  $OK  cmd.exe                $(path_of cmd.exe)"
 else
-    echo "  $FAIL  cmd.exe                not on PATH — URL auto-open will fail"
+    echo "  $FAIL  cmd.exe                not on PATH -- URL auto-open will fail"
 fi
 if have wslview; then
     echo "  $OK  wslview                $(path_of wslview)  (alternative opener)"
 else
-    echo "  $WARN  wslview                not installed — install: \`sudo apt install wslu\` (optional)"
+    echo "  $WARN  wslview                not installed -- install: \`sudo apt install wslu\` (optional)"
 fi
 
 echo
@@ -124,7 +124,7 @@ else
     echo "  $WARN  clip.exe               not on PATH"
 fi
 if have powershell.exe; then
-    echo "  $OK  Windows → WSL          paste via terminal (WSL2 ≥ 2.0 unified clipboard)"
+    echo "  $OK  Windows → WSL          paste via terminal (WSL2 >= 2.0 unified clipboard)"
 fi
 
 echo

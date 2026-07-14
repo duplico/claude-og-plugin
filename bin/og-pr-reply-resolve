@@ -3,12 +3,12 @@
 #
 # Couples the two steps that should always go together when a review finding is
 # addressed: post an inline reply citing the fix, then mark the conversation
-# resolved. Reply and resolve use DIFFERENT id spaces — the reply targets a
-# comment databaseId, resolution targets the thread's GraphQL node id — so this
+# resolved. Reply and resolve use DIFFERENT id spaces -- the reply targets a
+# comment databaseId, resolution targets the thread's GraphQL node id -- so this
 # script takes the comment id, posts the reply, finds the enclosing review
 # thread, and resolves it in one call.
 #
-# Resolves ONLY the single thread containing the given comment — never a bulk
+# Resolves ONLY the single thread containing the given comment -- never a bulk
 # sweep, so it can't hide review threads opened since you last looked.
 #
 # Usage: og-pr-reply-resolve owner/repo PR_NUMBER COMMENT_ID "<body>" [--disclose MODEL] [--no-resolve]
@@ -27,7 +27,7 @@
 #
 # Example:
 #   og-pr-reply-resolve duplico/claude-og-plugin 1 3555436613 \
-#     "Fixed in 7c6dc0f — reworded to say committer timestamp, not push time." \
+#     "Fixed in 7c6dc0f -- reworded to say committer timestamp, not push time." \
 #     --disclose "Opus 4.8"
 
 set -euo pipefail
@@ -121,7 +121,7 @@ if [[ "$RESOLVE" == "true" ]]; then
              | select(any(.comments.nodes[]; .databaseId == $cid)) | .id][0] // "null"')
 
     if [[ "$THREAD_ID" == "null" || -z "$THREAD_ID" ]]; then
-        echo "Warning: replied, but could not find a review thread containing comment ${COMMENT_ID} — not resolved." >&2
+        echo "Warning: replied, but could not find a review thread containing comment ${COMMENT_ID} -- not resolved." >&2
         echo "  (Is it a PR-level comment rather than an inline review comment?)" >&2
     else
         # 3. Resolve that thread.

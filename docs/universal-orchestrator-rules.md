@@ -48,7 +48,7 @@ Subagent output files can be 500KB+. Reading them will flood your context window
 - Use `tail -50` for quick status checks on log files
 - Use `gh pr checks` to verify CI status
 
-### 4. Reply Inline to PR Comments — and Resolve the Thread
+### 4. Reply Inline to PR Comments -- and Resolve the Thread
 
 When subagents address review comments, they must **reply and resolve the thread together** on GitHub, comment by comment. A comment is not addressed until its thread is resolved; a "Fixed in {SHA}" reply left on a still-open thread does not count. Use the coupled helper so the reply and the resolution happen in one call:
 
@@ -179,6 +179,6 @@ When project rules conflict with universal rules, **universal rules win**. Proje
 
 ## See Also
 
-- `claude-agent-rules.md` — rules that apply to all subagents (not just orchestrators)
-- The `pr-response-protocol` skill — preloaded by developer agents
-- The `closed-loop-helpers` skill — for review feedback iteration
+- `claude-agent-rules.md` -- rules that apply to all subagents (not just orchestrators)
+- The `pr-response-protocol` skill -- preloaded by developer agents
+- The `closed-loop-helpers` skill -- for review feedback iteration

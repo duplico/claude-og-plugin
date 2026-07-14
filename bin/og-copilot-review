@@ -4,16 +4,16 @@
 # Copilot does NOT auto-review on push. After a PR is updated with fix commits,
 # Copilot will not re-review unless the review is explicitly re-requested each
 # round. A "wait for Copilot" flow must therefore REQUEST first, then poll
-# (see og-copilot-comments) — polling alone hangs forever after round one.
+# (see og-copilot-comments) -- polling alone hangs forever after round one.
 #
 # Uses the REST requested_reviewers endpoint with the bot login, then VERIFIES
 # the request actually took from the response body. We deliberately do NOT use
 # `gh pr edit --add-reviewer @copilot`: that alias needs gh >= 2.88.0 and, on
-# older gh, silently no-ops while still exiting 0 — a false-positive success.
+# older gh, silently no-ops while still exiting 0 -- a false-positive success.
 # The REST path is version-independent and echoes back the requested reviewers.
 #
 # Note on re-requests: requesting again on an UNCHANGED head is deduped by GitHub
-# ("already up to date") — a fresh review only lands after a new head commit is
+# ("already up to date") -- a fresh review only lands after a new head commit is
 # pushed and the review is re-requested. If Copilot's prior review is stale and
 # blocking a re-review, minimize (mark outdated) its previous review in the UI or
 # via GraphQL first; this script intentionally stays on the plain request path.
@@ -22,7 +22,7 @@
 #
 # Output: JSON { repo, pr, requested, method, head_sha, note }
 #   requested is true only when a Copilot login is confirmed in the response's
-#   requested_reviewers — never inferred from an exit code alone.
+#   requested_reviewers -- never inferred from an exit code alone.
 #
 # Example:
 #   og-copilot-review 1512-ninja/ha-1512 44

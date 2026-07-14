@@ -49,7 +49,7 @@ Defaults if unspecified: `reviewer_agent=og:orchestrator-reviewer`, `developer_a
 If config has `issue` instead of `pr`:
 1. Dispatch the `developer_agent` to implement the issue and open a PR (give it the issue link and worktree path; ask for the PR number in its summary).
 2. Extract the PR number from the developer's summary.
-3. Update session state — now tracking a PR.
+3. Update session state -- now tracking a PR.
 
 ### Phase 2: Wait for CI (bounded)
 
@@ -159,7 +159,7 @@ Post the adversarial result to GitHub with `closed-loop-comment` so humans can f
 
 ### Step 5: Delegate Fixes
 
-Launch the `developer_agent` with the Category A comments and the worktree path. Ask it to push fixes and reply inline to each comment with `--no-resolve` (it has the `og:pr-response-protocol` preloaded) — **you** own resolution in Step 7, so the developer replies but does not resolve.
+Launch the `developer_agent` with the Category A comments and the worktree path. Ask it to push fixes and reply inline to each comment with `--no-resolve` (it has the `og:pr-response-protocol` preloaded) -- **you** own resolution in Step 7, so the developer replies but does not resolve.
 
 ### Step 6: Post Round Summary to GitHub
 
@@ -181,7 +181,7 @@ closed-loop-comment {repo} {pr} "## Round {N} Complete
 closed-loop-resolve-thread {repo} {pr} {THREAD_ID}
 ```
 
-Resolve **only** the specific thread IDs that were addressed. Never use `--all` in automation — it could hide new human feedback.
+Resolve **only** the specific thread IDs that were addressed. Never use `--all` in automation -- it could hide new human feedback.
 
 ### Step 8: Increment the round counter in config.json and loop.
 
@@ -200,10 +200,10 @@ GitHub is the source of truth. To resume: read PR state with `closed-loop-status
 
 ## Hard Boundaries
 
-1. **Never merge PRs** — report merge-ready only (universal Rule 0).
-2. **Never read comment content yourself** — delegate to the reviewer (universal Rule 3).
+1. **Never merge PRs** -- report merge-ready only (universal Rule 0).
+2. **Never read comment content yourself** -- delegate to the reviewer (universal Rule 3).
 3. **Always use the scripts** for GitHub interaction.
-4. **Post round summaries to GitHub** — it's the source of truth, not local files.
+4. **Post round summaries to GitHub** -- it's the source of truth, not local files.
 5. **Escalate immediately** when a stop condition is met.
 
 ## Output Format

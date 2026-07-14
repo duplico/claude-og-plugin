@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""og-sync — apply plugin updates down into the current project's .claude/ files.
+"""og-sync -- apply plugin updates down into the current project's .claude/ files.
 
 Detects and (with --fix) repairs two kinds of drift in the project orchestrator
 overlay and project agents:
@@ -133,14 +133,14 @@ def main():
     Y = "\033[33m" if is_tty else ""
     B = "\033[1m" if is_tty else ""
     N = "\033[0m" if is_tty else ""
-    OK = f"{G}✓{N}"; WARN = f"{Y}!{N}"
+    OK = f"{G}OK{N}"; WARN = f"{Y}!{N}"
 
     if not overlays and not agents:
         print(f"og-sync: no .claude/skills/*-orchestrator/ or .claude/agents/ under {root}")
-        print("  (nothing to sync — run /og:orchestrate-init first to scaffold one)")
+        print("  (nothing to sync -- run /og:orchestrate-init first to scaffold one)")
         return 0
 
-    print(f"{B}og-sync{N}  —  checking {len(overlays)} overlay(s) + {len(agents)} project agent(s) under {root}")
+    print(f"{B}og-sync{N}  --  checking {len(overlays)} overlay(s) + {len(agents)} project agent(s) under {root}")
     print()
 
     total_drift = 0
@@ -177,12 +177,12 @@ def main():
 
     print()
     if total_drift == 0:
-        print(f"{G}clean — no drift{N}")
+        print(f"{G}clean -- no drift{N}")
         return 0
     if args.fix:
         print(f"{G}applied {total_fixed} fix(es){N}  ({total_drift - total_fixed} item(s) need manual review)")
         return 0
-    print(f"{Y}{total_drift} drift item(s){N} — re-run with --fix to apply")
+    print(f"{Y}{total_drift} drift item(s){N} -- re-run with --fix to apply")
     return 1
 
 
