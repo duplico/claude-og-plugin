@@ -27,9 +27,25 @@ og_context() {   # sets ROOT OG OG_ID OG_VER REG ; RETURNS non-zero on any failu
     | "\(.key)\t\(.value[0].installPath)\t\(.value[0].version)"' "$REG") || {
     echo "FATAL: cannot parse $REG as JSON (jq failed). This is not an OG_ID problem." >&2
     return 1; }
-  [ "$(printf '%s' "$matches" | grep -c .)" -eq 1 ] || {
-    echo "FATAL: need exactly one og install; set OG_ID=og@<marketplace>. Found:" >&2
-    printf '%s\n' "$matches" | cut -f1 | sed 's/^/  /' >&2; return 1; }
+  local n; n=$(printf '%s' "$matches" | grep -c .)
+  if [ "$n" -eq 0 ]; then
+    # ZERO matches and MULTIPLE matches are different problems. Saying "need exactly one og
+    # install" and then printing an empty "Found:" list points at the wrong remedy: with a wrong
+    # or renamed OG_ID there is nothing to disambiguate -- the id itself is the bug.
+    if [ -n "$sel" ]; then
+      echo "FATAL: OG_ID='$sel' matches no installed plugin. Installed og plugins:" >&2
+    else
+      echo "FATAL: no og plugin is installed. Found:" >&2
+    fi
+    jq -r '.plugins | keys[] | select(startswith("og@"))' "$REG" 2>/dev/null | sed 's/^/  /' >&2 \
+      || echo "  (none)" >&2
+    return 1
+  fi
+  if [ "$n" -gt 1 ]; then
+    echo "FATAL: $n og installs match; set OG_ID=og@<marketplace> to pick one. Found:" >&2
+    printf '%s\n' "$matches" | cut -f1 | sed 's/^/  /' >&2
+    return 1
+  fi
   IFS=$'\t' read -r OG_ID OG OG_VER <<<"$matches"
   [ -f "$OG/docs/universal-orchestrator-rules.md" ] || { echo "FATAL: bad og install at $OG" >&2; return 1; }
   export ROOT OG OG_ID OG_VER REG
@@ -383,11 +399,25 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
   got=$(awk '/^## Project Rules/{f=1;next} /^## /{if(f)exit} f' "$tmp" \
         | grep -cE "^${prefix}-[0-9]+\. \*\*|^\*\*${prefix}-[0-9]+ ")
   want=$(printf '%s\n' "$nums" | wc -l | tr -d ' ')
-  outside=$(awk -v p="$prefix" '
+  # The invariant is that migration must not CREATE a rule header outside the section -- not that
+  # none may EXIST there. Two separate false aborts came out of getting that wrong:
+  #   - matching a bare "PREFIX-N." also matched a legitimate CITATION at line start (prose reading
+  #     "Rule 12. is the one people forget" is correctly rewritten to "X-1. is ...");
+  #   - an absolute count also aborts on a header-shaped line that was ALREADY there and that
+  #     migration never touched (someone quoting a rule in prose).
+  # So: count header-shaped lines outside the section BEFORE and AFTER, and only object if the
+  # rewrite added one.
+  _outside_hdrs() {   # $1 = file, $2 = prefix
+    awk -v p="$2" '
       /^ ? ? ?```/ {fence=!fence; next} fence {next}
       /^## Project Rules/ {inr=1; next} /^## / {inr=0}
-      !inr && $0 ~ ("^" p "-[0-9]+\\.") {c++}
-      END {print c+0}' "$tmp")
+      !inr && ($0 ~ ("^" p "-[0-9]+\\. \\*\\*") || $0 ~ ("^\\*\\*" p "-[0-9]+ ")) {c++}
+      END {print c+0}' "$1"
+  }
+  local before_hdrs
+  before_hdrs=$(_outside_hdrs "$f" "$prefix")
+  outside=$(( $(_outside_hdrs "$tmp" "$prefix") - before_hdrs ))
+  [ "$outside" -lt 0 ] && outside=0
   # Fenced content is quoted on purpose -- examples, fixtures, history. Migration must not change
   # one byte of it. The check above cannot see this: it `next`s past fences, so it was blind to
   # exactly the corruption that shipped. Assert the invariant directly instead.

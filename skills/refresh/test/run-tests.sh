@@ -494,6 +494,23 @@ else
   bad "table extractor picks up non-functions" "got '$got', want 'subjects_of ' -- a path row became a fake function that would pass vacuously"
 fi
 
+# The "outside the section" guard must object to a header the rewrite CREATED, not to one that
+# merely EXISTS. Two false aborts came out of getting that wrong -- both refuse a migration that
+# did nothing wrong, which is not corruption but is still a broken tool.
+OS1="$TMP/outside1-orchestrator"; mkdir -p "$OS1"
+printf 'og:orchestrate\n\n## Subject repos\n\n| Path | Prefix | Slug | Default branch |\n|---|---|---|---|\n| `.` | O1 | o/a | `main` |\n\n## Project Rules\n\n12. **A.** x\n\n## Notes\n\nRule 12. is the one people forget.\n' > "$OS1/SKILL.md"
+migrate_rules "$OS1" "$OGDIR" --apply >/dev/null 2>&1
+grep -q '^O1-1\. \*\*A\.\*\*' "$OS1/SKILL.md" \
+  && ok "outside-guard: a CITATION at line start outside the section does not abort" \
+  || bad "outside-guard false abort on a citation" "prose 'Rule 12. is...' becomes 'O1-1. is...' and was read as a leaked header"
+
+OS2="$TMP/outside2-orchestrator"; mkdir -p "$OS2"
+printf 'og:orchestrate\n\n## Subject repos\n\n| Path | Prefix | Slug | Default branch |\n|---|---|---|---|\n| `.` | O2 | o/b | `main` |\n\n## Project Rules\n\n12. **A.** x\n\n## Notes\n\nO2-9. **A pre-existing quoted rule.** y\n' > "$OS2/SKILL.md"
+migrate_rules "$OS2" "$OGDIR" --apply >/dev/null 2>&1
+grep -q '^O2-1\. \*\*A\.\*\*' "$OS2/SKILL.md" \
+  && ok "outside-guard: a header-shaped line ALREADY outside the section does not abort" \
+  || bad "outside-guard false abort on pre-existing content" "it aborts on a line migration never touched"
+
 echo
 printf 'pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
