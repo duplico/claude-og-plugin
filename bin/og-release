@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# og-release -- bump the plugin version, and catch the drift that makes updates silently no-op.
+#
+#   og-release check              report whether the version is stale vs the last release tag
+#   og-release bump <level>       bump plugin.json (major|minor|patch or an explicit X.Y.Z)
+#
+# WHY THIS EXISTS
+#   `claude plugin update` keys off the VERSION STRING in plugin.json, not the commit. If a
+#   release lands without bumping it, `update` reports "already at the latest version" and
+#   pulls NOTHING. The changes are merged, tagged or not, and simply undeliverable.
+#   That happened: v0.1.5 shipped, then a new universal rule and a new tool merged on top of
+#   it, and every user's `claude plugin update` said "up to date" while fetching neither.
+#
+# Release flow (the version bump must go through a PR; main is protected):
+#   1. og-release bump minor      # edits plugin.json
+#   2. commit, PR, merge
+#   3. claude plugin tag --push   # tags main as og--v<version>, validating plugin.json
+set -euo pipefail
+
+ROOT=$(git rev-parse --show-toplevel)
+PJ="$ROOT/.claude-plugin/plugin.json"
+[ -f "$PJ" ] || { echo "error: no $PJ" >&2; exit 1; }
+command -v jq >/dev/null || { echo "error: jq required" >&2; exit 1; }
+
+cur=$(jq -r .version "$PJ")
+name=$(jq -r .name "$PJ")
+
+last_tag() { git -C "$ROOT" tag --list "${name}--v*" | sed "s/^${name}--v//" | sort -V | tail -1; }
+
+cmd_check() {
+  local lt; lt=$(last_tag)
+  echo "plugin.json: v$cur"
+  if [ -z "$lt" ]; then
+    echo "no ${name}--v* release tag exists yet"
+  else
+    echo "last tag:    v$lt"
+  fi
+  local since
+  if [ -n "$lt" ] && git -C "$ROOT" rev-parse -q --verify "${name}--v${lt}" >/dev/null; then
+    since=$(git -C "$ROOT" rev-list --count "${name}--v${lt}..HEAD")
+  else
+    since=$(git -C "$ROOT" rev-list --count HEAD)
+  fi
+  echo "commits since that tag: $since"
+  if [ "$since" -gt 0 ] && [ "$cur" = "${lt:-}" ]; then
+    echo
+    echo "STALE: there are $since commit(s) since v$cur, but the version was not bumped."
+    echo "       \`claude plugin update\` compares the VERSION STRING -- it will report"
+    echo "       \"already at the latest version\" and pull none of them."
+    echo "       Run: og-release bump <major|minor|patch>"
+    return 1
+  fi
+  echo "OK"
+}
+
+cmd_bump() {
+  local level="${1:?usage: og-release bump <major|minor|patch|X.Y.Z>}" new
+  case "$level" in
+    major|minor|patch)
+      IFS=. read -r a b c <<<"$cur"
+      case "$level" in
+        major) new="$((a+1)).0.0" ;;
+        minor) new="${a}.$((b+1)).0" ;;
+        patch) new="${a}.${b}.$((c+1))" ;;
+      esac ;;
+    [0-9]*.[0-9]*.[0-9]*) new="$level" ;;
+    *) echo "error: level must be major|minor|patch or X.Y.Z" >&2; exit 1 ;;
+  esac
+  jq --arg v "$new" '.version = $v' "$PJ" > "$PJ.tmp" && mv "$PJ.tmp" "$PJ"
+  echo "$name: $cur -> $new"
+  echo "Next: commit + PR + merge, then \`claude plugin tag --push\` on main."
+}
+
+case "${1:-check}" in
+  check) cmd_check ;;
+  bump)  shift; cmd_bump "$@" ;;
+  *) echo "usage: og-release [check|bump <level>]" >&2; exit 1 ;;
+esac
