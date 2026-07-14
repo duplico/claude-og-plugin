@@ -21,12 +21,18 @@
 # Live end-to-end runs are done by hand against throwaway worktrees.
 
 set -uo pipefail
+# SC2015: the `cond && ok "..." || bad "..."` assertion idiom is safe here -- ok() is an echo
+#         plus a counter increment and cannot fail, so bad() never runs on a passing check.
+# SC1090: $LIB is resolved at runtime relative to this script; shellcheck cannot follow it.
+# shellcheck disable=SC2015,SC1090
 command -v jq >/dev/null || { echo "FATAL: jq is required to run these tests" >&2; exit 1; }
 HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 SKILL="$HERE/../SKILL.md"
 LIB="$HERE/../refresh-lib.sh"
 FIX="$HERE/fixtures"                 # static fixtures, committed
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT   # generated fixtures (incl. a git repo) -- NEVER committed
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/og-refresh-test.XXXXXX") \
+  || { echo "FATAL: cannot create a temp dir" >&2; exit 1; }
+trap 'rm -rf "$TMP"' EXIT   # generated fixtures (incl. a git repo) -- NEVER committed
 pass=0; fail=0
 ok()   { printf '  ok   %s\n' "$1"; pass=$((pass+1)); }
 bad()  { printf '  FAIL %s\n     %s\n' "$1" "$2"; fail=$((fail+1)); }

@@ -221,7 +221,9 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
   # "rewrote 0 of N rules" abort instead of the actual cause.
   command -v perl >/dev/null || { echo "    FATAL: perl is required for --apply"; return 1; }
 
-  local tmp; tmp=$(mktemp)
+  # Templated: a bare `mktemp` is GNU-only; BSD/macOS requires a template.
+  local tmp
+  tmp=$(mktemp "${TMPDIR:-/tmp}/og-refresh.XXXXXX") || { echo "    FATAL: cannot create a temp file"; return 1; }
   cp "$f" "$tmp"
   # 1. rule headers, descending so a shift never collides mid-edit
   for n in $(printf '%s\n' "$nums" | sort -rn); do
