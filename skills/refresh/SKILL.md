@@ -30,21 +30,22 @@ So the checks are **code, not prose** -- shipped in `refresh-lib.sh` beside this
 REG="$HOME/.claude/plugins/installed_plugins.json"
 # Do NOT `head -1` here: with two og installs that silently sources the WRONG library, before
 # og_context's guard ever runs. Require exactly one, or bail to the same OG_ID escape hatch.
-mapfile -t _og < <(jq -r --arg sel "${OG_ID:-}" '.plugins | to_entries[]
-  | select(.key|startswith("og@")) | select($sel == "" or .key == $sel)
-  | .value[0].installPath' "$REG")
-[ "${#_og[@]}" -eq 1 ] || { echo "FATAL: need exactly one og install; set OG_ID=og@<marketplace>"; exit 1; }
-. "${_og[0]}/skills/refresh/refresh-lib.sh"
+# NOT `mapfile`: that is bash 4+, and macOS still ships bash 3.2.
+_og=""; _n=0
+while IFS= read -r _p; do _og="$_p"; _n=$((_n + 1)); done < <(
+  jq -r --arg sel "${OG_ID:-}" '.plugins | to_entries[]
+    | select(.key|startswith("og@")) | select($sel == "" or .key == $sel)
+    | .value[0].installPath' "$REG")
+[ "$_n" -eq 1 ] || { echo "FATAL: need exactly one og install; set OG_ID=og@<marketplace>"; exit 1; }
+. "$_og/skills/refresh/refresh-lib.sh"
 og_context || exit 1        # sets ROOT OG OG_ID OG_VER REG; FATALs loudly on any failure
 ```
 
 | Function | Does |
 |---|---|
 | `og_context` | re-derive `$ROOT`/`$OG`/`$OG_ID`; FATAL on non-git, missing jq, missing or ambiguous install |
-| `universal_upper_bound` | read `N` from the plugin's rules doc -- never hardcode it, it moves |
 | `is_og_shaped <overlay>` | Gate A. Anchored so `Changelog:` does not count as `og:` |
 | `subjects_of <overlay> <root>` | Gate B. Parse `## Subject repos`. rc=0 declared, rc=2 provisional (convention), rc=1 unresolved |
-| `lowest_project_rule <file>` | Phase 3. **Scoped to the `## Project Rules` section** -- an unscoped grep picks up unrelated numbered lists and returns 1 |
 | `classify_path <path> <subject>` | Phase 6. Returns OK / DANGLING / UNVERIF / SKIP(glob). Walks the full parent chain |
 | `check_freshness <id> <reg>` | Phase 1. SHA comparison. Returns UNVERIF -- never "up to date" -- if the fetch fails or the marketplace is missing |
 
@@ -241,7 +242,7 @@ Leave the changes on a branch. **Do not open a PR and do not merge** (Rule 0).
 ## Boundaries
 
 - **Never report a silent pass.** If a check could not run, say so.
-- **Never renumber project rules downward.** A gap above the universal range is legal and often deliberate.
+- **Never rewrite an ambiguous citation.** A legacy `Rule N` inside the plugin's range may be a universal reference *or* a stale project one. Rewriting it is silently wrong in the second case; leaving it is visibly legacy. Flag it and let a human decide.
 - **Never delete correct documentation because you could not see what it describes.** Unverifiable is not false.
 - **Never delete a project agent carrying domain knowledge** because its name collides. Rename it.
 - **Never rewrite dated handovers** to make them "correct". Banner them.

@@ -59,6 +59,15 @@ for fn in is_og_shaped subjects_of classify_path check_freshness migrate_rules; 
   else bad "SKILL.md never CALLS $fn()" "it is implemented in refresh-lib.sh but no phase invokes it inside a code block -- the phase is running its own inline copy, or only describing the function in prose"; fi
 done
 
+# The reference table must not advertise a function no phase calls. That is how
+# lowest_project_rule and universal_upper_bound survived as dead code while the table implied
+# a phase used them -- the table lied, and a future edit would have "fixed" a phase to match.
+while read -r fn; do
+  [ -n "$fn" ] || continue
+  if [ "$(calls_in_fence "$fn")" -ge 1 ]; then ok "table function $fn() is actually called"
+  else bad "table advertises $fn() but no phase calls it" "dead row -- delete the function or wire it in"; fi
+done < <(grep -oE '^\| `[a-z_]+' "$SKILL" | tr -d '|` ')
+
 # The wiring check must itself be falsifiable: a function that exists but is never called
 # must FAIL. Prove the check can fire.
 if [ "$(calls_in_fence definitely_not_a_real_function)" -eq 0 ]; then
@@ -69,17 +78,6 @@ fi
 
 # --- 3. Behavioural tests of the lib, against fixtures ---
 . "$LIB"
-
-t_rule() {  # name, fixture file, expected P
-  local got; got=$(lowest_project_rule "$FIX/$2")
-  [ "$got" = "$3" ] && ok "lowest_project_rule($2) = ${3:-<empty>}" \
-    || bad "lowest_project_rule($2)" "expected '${3:-<empty>}', got '${got:-<empty>}'"
-}
-t_rule "plain"        overlay-plain.md        12
-t_rule "fenced block" overlay-fenced.md       12   # a ```1. bump``` inside the section must NOT win
-t_rule "nested list"  overlay-nested.md       12
-t_rule "no rules"     overlay-norules.md      ""   # must be empty, not 1
-t_rule "collision"    overlay-collision.md    11
 
 t_path() {  # $1 = label, $2 = path, $3 = subject dir, $4 = expected classification prefix
   local got; got=$(classify_path "$2" "$3")
@@ -137,20 +135,6 @@ t_subj_root() {
   else bad "subjects_of(root-repo overlay)" "expected '.', got rc=$rc path='${path:-<none>}' -- a single-repo project would be SKIPPED ENTIRELY"; fi
 }
 t_subj_root
-
-# universal_upper_bound must work against BOTH header formats. The section header lost its
-# range in the namespacing change; a helper that grepped it would silently return empty.
-OGDIR0=""
-if [ -r "$HOME/.claude/plugins/installed_plugins.json" ]; then
-  OGDIR0=$(jq -r '.plugins | to_entries[] | select(.key|startswith("og@")) | .value[0].installPath' \
-           "$HOME/.claude/plugins/installed_plugins.json" 2>/dev/null | head -1)
-fi
-for og_try in "$OGDIR0" "$HERE/../../.."; do
-  [ -f "$og_try/docs/universal-orchestrator-rules.md" ] || continue
-  OG="$og_try"; n=$(universal_upper_bound)
-  [ -n "$n" ] && ok "universal_upper_bound($(basename "$og_try")) = $n" \
-    || bad "universal_upper_bound($(basename "$og_try"))" "returned EMPTY -- would read as 'no universal rules'"
-done
 
 # --- migration ---
 OGDIR=""

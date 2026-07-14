@@ -28,22 +28,6 @@ og_context() {   # sets ROOT OG OG_ID OG_VER REG ; exits on any failure
   export ROOT OG OG_ID OG_VER REG
 }
 
-# Highest OG-N the plugin ships. Read it from the RULE HEADERS, not the section header: the
-# section header no longer carries a range (it is now "## Universal Rules (OG-*)"), so grepping
-# it for a number returns EMPTY -- which would silently read as "no universal rules".
-universal_upper_bound() {
-  local n
-  n=$(grep -oE '^### (OG-)?[0-9]+\.' "$OG/docs/universal-orchestrator-rules.md" 2>/dev/null \
-      | grep -oE '[0-9]+' | sort -n | tail -1)
-  # Empty here would read as "no universal rules" -- the silent pass this skill exists to
-  # prevent. Fail loudly instead.
-  if ! [ "${n:-}" -eq "${n:-}" ] 2>/dev/null; then
-    echo "FATAL: cannot determine og's rule range from $OG/docs/universal-orchestrator-rules.md" >&2
-    return 1
-  fi
-  echo "$n"
-}
-
 # ---- Gate A: og-shaped? (\bog: anchored -- 'Changelog:' must NOT match) ----
 is_og_shaped() {  # $1 = overlay dir
   grep -qE '(^|[^A-Za-z])og:|og plugin|universal-orchestrator-rules' "$1/SKILL.md"
@@ -65,21 +49,6 @@ subjects_of() {   # $1 = overlay dir, $2 = ROOT ; prints path<TAB>PREFIX<TAB>slu
 }
 
 # ---- Phase 3: lowest project-rule number, SCOPED to the ## Project Rules section ----
-lowest_project_rule() {  # $1 = overlay SKILL.md. Prints the lowest project-rule number, or nothing.
-  # Scoped to the ## Project Rules section AND skipping fenced code blocks: a "1. bump version"
-  # inside a ``` example would otherwise win, yield P=1, and fire a false COLLISION that
-  # renumbers -- and destroys -- the whole overlay.
-  awk '
-    /^## Project Rules/ { inrules=1; next }
-    /^## /              { if (inrules) exit }
-    !inrules            { next }
-    /^```/              { fence = !fence; next }
-    fence               { next }
-    /^[0-9]+\. \*\*/     { print $1 }        # 12. **Text**
-    /^\*\*Rule [0-9]+/  { print $2 }        # **Rule 12 -- Text**
-  ' "$1" | tr -d '.' | grep -oE '^[0-9]+$' | sort -n | head -1
-}
-
 # ---- Phase 6: classify a referenced path against its SUBJECT repo ----
 classify_path() {  # $1 = path, $2 = subject repo dir, $3 = ROOT (optional). OK|DANGLING|UNVERIF|SKIP
   local p="$1" base="$2" root="${3:-}" t
