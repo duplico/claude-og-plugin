@@ -226,6 +226,61 @@ suggest_prefix() {   # $1 = overlay dir. A CANDIDATE prefix for a table that has
 }
 
 
+add_prefix_column() {   # $1 = overlay dir, $2 = prefix. Inserts Prefix into ## Subject repos.
+  # The skill knew the answer and made the user type it into six tables by hand. It proposes now,
+  # and writes it on confirmation like every other change -- same gate, same refusal under
+  # --report-only. It does NOT invent a prefix silently: the caller passes one a human approved.
+  local ov="$1" pfx="$2" f="$1/SKILL.md" tmp
+  case "$pfx" in [A-Z]*) ;; *) echo "FATAL: prefix '$pfx' must match [A-Z][A-Z0-9]*" >&2; return 1 ;; esac
+
+  if [ "${OG_REFRESH_REPORT_ONLY:-}" = "1" ]; then
+    echo "REFUSED: add_prefix_column under --report-only." >&2; return 1
+  fi
+  if [ -n "$(rule_prefix_of "$ov" 2>/dev/null)" ]; then
+    echo "    $ov already has a Prefix -- nothing to do"; return 0
+  fi
+
+  tmp=$(mktemp "${TMPDIR:-/tmp}/og-prefix.XXXXXX") || return 1
+  awk -v pfx="$pfx" '
+    /^ ? ? ?```/ { fence = !fence; print; next }
+    fence        { print; next }
+    /^## Subject repos/ { insec = 1; print; next }
+    /^## /              { insec = 0 }
+    insec && /^\|/ {
+      n = split($0, c, "|")                      # c[1] empty, c[2..n-1] cells, c[n] empty
+      out = ""
+      for (i = 2; i <= n - 1; i++) {
+        out = out "|" c[i]
+        if (i == 2) {                            # insert immediately after the FIRST column (Path)
+          if      (c[2] ~ /^ *[Pp]ath *$/)  out = out "| Prefix "
+          else if (c[2] ~ /^[ :-]+$/)       out = out "|---"
+          else                              out = out "| " pfx " "
+        }
+      }
+      print out "|"; next
+    }
+    { print }
+  ' "$f" > "$tmp" || { rm -f "$tmp"; return 1; }
+
+  # ASSERT before writing: the table gained exactly one column, and nothing else changed.
+  local rows_b rows_a
+  rows_b=$(awk '/^## Subject repos/{s=1;next} /^## /{s=0} s && /^\|/' "$f"   | wc -l | tr -d ' ')
+  rows_a=$(awk '/^## Subject repos/{s=1;next} /^## /{s=0} s && /^\|/' "$tmp" | wc -l | tr -d ' ')
+  if [ "$rows_b" -ne "$rows_a" ] || [ "$rows_b" -eq 0 ]; then
+    echo "    ABORT: table rows changed ($rows_b -> $rows_a) -- refusing to write" >&2
+    rm -f "$tmp"; return 1
+  fi
+  if [ "$(wc -l < "$f")" -ne "$(wc -l < "$tmp")" ]; then
+    echo "    ABORT: line count changed -- refusing to write" >&2; rm -f "$tmp"; return 1
+  fi
+  mv "$tmp" "$f"
+  # And the thing this exists for: the prefix must now actually READ BACK.
+  if [ "$(rule_prefix_of "$ov")" != "$pfx" ]; then
+    echo "    ABORT: wrote the column but rule_prefix_of still cannot read '$pfx'" >&2; return 1
+  fi
+  echo "    $ov: added Prefix column ($pfx)"
+}
+
 migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
   local ov="$1" og="$2" mode="${3:---dry}"
   local f="$ov/SKILL.md"

@@ -62,6 +62,8 @@ og_context || exit 1       # sets ROOT OG OG_ID OG_VER REG; FATALs loudly on any
 | `is_og_shaped <overlay>` | Gate A. Anchored so `Changelog:` does not count as `og:` |
 | `subjects_of <overlay> <root>` | Gate B. Parse `## Subject repos`. rc=0 declared, rc=2 provisional (convention), rc=1 unresolved |
 | `classify_path <path> <subject-dir> <root>` | Phase 6. Returns OK / DANGLING / UNVERIF / SKIP(glob). Walks the full parent chain |
+| `suggest_prefix <overlay>` | Phase 3. A *candidate* prefix from the overlay name. Never applied on its own |
+| `add_prefix_column <overlay> <prefix>` | Phase 3. Adds Prefix to the Subject repos table, on confirmation. Refuses under `--report-only`; asserts the prefix reads back |
 | `check_freshness <id> <reg>` | Phase 1. SHA comparison. Returns UNVERIF -- never "up to date" -- if the fetch fails or the marketplace is missing |
 
 Every one of these fails **loudly**. None returns an empty result that could be read as "clean".
@@ -130,9 +132,36 @@ Report same-named pairs and **diff them**. Recommend deletion only where the pro
 
 That deletes what used to be the most destructive code in this skill. What is left is (a) migrating repos still on the old shared number line, and (b) checking citations resolve.
 
-### Legacy numbering -> namespaced
+Any repo bootstrapped before the prefix scheme has bare `12.`-style rules. Two things stand between
+them and a namespace: a **Prefix** to migrate into, and the migration itself. The skill does both.
 
-Any repo bootstrapped before the prefix scheme has bare `12.`-style rules. Migrate them:
+### Overlays with no Prefix yet
+
+An overlay written before the namespaced scheme has a `## Subject repos` table with no **Prefix**
+column, and `migrate_rules` refuses to invent one. **Do not make the user type it in.** Propose a
+prefix, show the table edit, and add it on confirmation -- it is a change like any other, and goes
+through the same gate as the rest of Phase 8.
+
+```bash
+for ov in "${OVERLAYS[@]}"; do
+  [ -n "$(rule_prefix_of "$ov" 2>/dev/null)" ] && continue
+  echo "$(basename "$ov"): no Prefix -- suggest $(suggest_prefix "$ov")"
+done
+```
+
+The suggestion is derived from the overlay's name and is **a starting point, not an answer**: it
+proposed `DEPLOYMENT` where the right call was `DEPLOY`. Show it, let the user edit it, then:
+
+```bash
+# ONLY after the user confirms each prefix. Refuses under --report-only.
+add_prefix_column "$ov" "$PREFIX"     # asserts the prefix reads back before it returns
+```
+
+A multi-subject overlay repeats **one** prefix on every row (deployment and infra-deployment both
+say `DEPLOY`): one overlay, one rule list, one namespace. Two *different* prefixes is a FATAL, not
+a guess.
+
+### Legacy numbering -> namespaced
 
 ```bash
 for ov in "${OVERLAYS[@]}"; do
