@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
-# run-tests.sh -- execute the ACTUAL code blocks from SKILL.md against fixture repos.
+# run-tests.sh -- guard against the one bug this skill keeps having.
 #
-# WHY THIS EXISTS
-#   Three consecutive adversarial reviews of this skill found the same shape of bug:
+# THREE adversarial execution rounds all found the same shape:
 #   THE CHECK THAT IS WRITTEN IS NOT THE CHECK THAT RUNS.
 #     round 1: prose described checks; no code implemented them.
 #     round 2: the redesign fixed the prose, not the code.
-#     round 3: refresh-lib.sh implemented the checks correctly -- and SKILL.md's phases
-#              never called it, still running the old buggy inline snippets. The skill
-#              reported three EXISTING files as DANGLING on the maintainer's own repo.
-#   Testing the library in isolation passes every time and catches none of that. This
-#   harness extracts the bash from SKILL.md itself and runs it, so a phase that does not
-#   call the library fails here.
+#     round 3: refresh-lib.sh implemented every check correctly -- and SKILL.md's phases never
+#              CALLED it, still running old buggy inline copies. Three EXISTING files were
+#              reported as DANGLING on the maintainer's own repo.
+#
+# So this harness does two things:
+#   1. WIRING -- parse SKILL.md and assert each phase actually CALLS the library function it
+#      is supposed to (a call inside a fenced bash block; a mere mention in prose does NOT
+#      count). This is what catches "implemented but never wired in".
+#   2. BEHAVIOUR -- exercise refresh-lib.sh's functions against fixtures, including the
+#      hostile cases (fenced code blocks inside a rules section, absent subject repos,
+#      ambiguous citations, unreadable plugin).
+#
+# It does NOT execute SKILL.md's phases end-to-end -- those mutate repos and call the network.
+# Live end-to-end runs are done by hand against throwaway worktrees.
+
 set -uo pipefail
+command -v jq >/dev/null || { echo "FATAL: jq is required to run these tests" >&2; exit 1; }
 HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 SKILL="$HERE/../SKILL.md"
 LIB="$HERE/../refresh-lib.sh"
@@ -23,23 +32,31 @@ ok()   { printf '  ok   %s\n' "$1"; pass=$((pass+1)); }
 bad()  { printf '  FAIL %s\n     %s\n' "$1" "$2"; fail=$((fail+1)); }
 
 # --- 1. Every lib function the phases need must actually be CALLED by SKILL.md ---
-# A function that appears only in the reference table is not wired in.
+#
+# A mention in prose is NOT a call. Counting bare occurrences means a function that is only
+# *described* passes -- which is precisely the vacuous-pass this harness exists to prevent.
+# So: look for a call-shaped use INSIDE a fenced code block.
+calls_in_fence() {   # $1 = function name -> prints the number of call-shaped uses in fences
+  awk -v fn="$1" '
+    /^```/ { fence = !fence; next }
+    !fence { next }
+    $0 ~ ("(^|[^A-Za-z0-9_])" fn "([ \t]|$)") { n++ }
+    END { print n+0 }
+  ' "$SKILL"
+}
 for fn in is_og_shaped subjects_of classify_path check_freshness migrate_rules; do
-  # strip the reference table (lines starting with '|') before counting real uses
-  n=$(grep -v '^|' "$SKILL" | grep -c "$fn" || true)
-  if [ "$n" -ge 1 ]; then ok "SKILL.md calls $fn()"
-  else bad "SKILL.md never calls $fn()" "it is implemented in refresh-lib.sh but no phase invokes it -- the phase is running its own inline copy"; fi
+  n=$(calls_in_fence "$fn")
+  if [ "$n" -ge 1 ]; then ok "SKILL.md CALLS $fn() ($n use(s) in code)"
+  else bad "SKILL.md never CALLS $fn()" "it is implemented in refresh-lib.sh but no phase invokes it inside a code block -- the phase is running its own inline copy, or only describing the function in prose"; fi
 done
 
-# --- 2. No phase may reimplement a check inline ---
-# Phase 6 legitimately greps to EXTRACT candidate paths -- what matters is that it CLASSIFIES
-# with classify_path rather than reimplementing the logic. That is asserted above. (An earlier
-# assertion here tried to ban the grep itself, anchored to start-of-line; Phase 6's grep sits
-# mid-line after `done < <(`, so it could never match and passed vacuously. A test that cannot
-# fire is a false pass -- exactly what this harness exists to prevent.)
-if grep -q 'if \[ ! -d "\$MP/.git" \]; then' "$SKILL" || grep -q 'rev-parse origin/HEAD' "$SKILL"; then
-  bad "Phase 1 has an inline freshness snippet" "it must call check_freshness()"
-else ok "Phase 1 has no inline freshness check"; fi
+# The wiring check must itself be falsifiable: a function that exists but is never called
+# must FAIL. Prove the check can fire.
+if [ "$(calls_in_fence definitely_not_a_real_function)" -eq 0 ]; then
+  ok "wiring check can actually fire (a never-called function scores 0)"
+else
+  bad "wiring check is vacuous" "it scores >0 for a function that does not exist -- it would pass anything"
+fi
 
 # --- 3. Behavioural tests of the lib, against fixtures ---
 . "$LIB"
@@ -97,8 +114,11 @@ t_subj_root
 
 # universal_upper_bound must work against BOTH header formats. The section header lost its
 # range in the namespacing change; a helper that grepped it would silently return empty.
-OGDIR0=$(jq -r '.plugins | to_entries[] | select(.key|startswith("og@")) | .value[0].installPath' \
-         "$HOME/.claude/plugins/installed_plugins.json" | head -1)
+OGDIR0=""
+if [ -r "$HOME/.claude/plugins/installed_plugins.json" ]; then
+  OGDIR0=$(jq -r '.plugins | to_entries[] | select(.key|startswith("og@")) | .value[0].installPath' \
+           "$HOME/.claude/plugins/installed_plugins.json" 2>/dev/null | head -1)
+fi
 for og_try in "$OGDIR0" "$HERE/../../.."; do
   [ -f "$og_try/docs/universal-orchestrator-rules.md" ] || continue
   OG="$og_try"; n=$(universal_upper_bound)

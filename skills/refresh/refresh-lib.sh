@@ -32,8 +32,16 @@ og_context() {   # sets ROOT OG OG_ID OG_VER REG ; exits on any failure
 # section header no longer carries a range (it is now "## Universal Rules (OG-*)"), so grepping
 # it for a number returns EMPTY -- which would silently read as "no universal rules".
 universal_upper_bound() {
-  grep -oE '^### (OG-)?[0-9]+\.' "$OG/docs/universal-orchestrator-rules.md" \
-    | grep -oE '[0-9]+' | sort -n | tail -1
+  local n
+  n=$(grep -oE '^### (OG-)?[0-9]+\.' "$OG/docs/universal-orchestrator-rules.md" 2>/dev/null \
+      | grep -oE '[0-9]+' | sort -n | tail -1)
+  # Empty here would read as "no universal rules" -- the silent pass this skill exists to
+  # prevent. Fail loudly instead.
+  if ! [ "${n:-}" -eq "${n:-}" ] 2>/dev/null; then
+    echo "FATAL: cannot determine og's rule range from $OG/docs/universal-orchestrator-rules.md" >&2
+    return 1
+  fi
+  echo "$n"
 }
 
 # ---- Gate A: og-shaped? (\bog: anchored -- 'Changelog:' must NOT match) ----
@@ -202,6 +210,10 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
   done < <(grep -oE '\bRule [0-9]+' "$f" | grep -oE '[0-9]+' | sort -un)
 
   [ "$mode" = "--apply" ] || return 0
+
+  # perl does the rewrites. Check BEFORE we start, or a missing perl surfaces as a cryptic
+  # "rewrote 0 of N rules" abort instead of the actual cause.
+  command -v perl >/dev/null || { echo "    FATAL: perl is required for --apply"; return 1; }
 
   local tmp; tmp=$(mktemp)
   cp "$f" "$tmp"

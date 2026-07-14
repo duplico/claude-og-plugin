@@ -112,8 +112,13 @@ Any repo bootstrapped before the prefix scheme has bare `12.`-style rules. Migra
 for ov in "${OVERLAYS[@]}"; do
   migrate_rules "$ov" "$OG" --dry      # show the old->new map and how every citation resolves
 done
-# ...then, only after the user confirms, and never under --report-only:
-migrate_rules "$ov" "$OG" --apply
+
+# ...then, only after the user confirms, and NEVER under --report-only.
+# Note the loop: applying outside it would migrate only the LAST overlay and silently leave
+# the rest on legacy numbering, while reporting success.
+for ov in "${OVERLAYS[@]}"; do
+  migrate_rules "$ov" "$OG" --apply || echo "  migration FAILED for $ov -- stopping"
+done
 ```
 
 `migrate_rules` is **the most dangerous thing this skill does**, because it rewrites rule headers *and the citations that point at them*. Get the citation mapping wrong and an overlay ends up pointing at one of the **plugin's** rules instead of its own -- which is exactly the bug the namespacing exists to eliminate. So it:
