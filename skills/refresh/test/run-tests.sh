@@ -403,6 +403,33 @@ grep -q '^RO-1\.' "$RO/SKILL.md" \
   && ok "--apply still works when the guard is NOT set (not a blanket block)" \
   || bad "--apply broken" "the guard blocks even when unset: $(grep -E '^(RO-|12\.)' "$RO/SKILL.md")"
 
+# An overlay has ONE flat rule list, so it has ONE prefix; a multi-subject overlay repeats it on
+# every row (deployment + infra-deployment both say DEPLOY). `head -1` across rows declaring
+# DIFFERENT prefixes silently picked the first, and every rule would be rewritten into a namespace
+# the author never chose. Refuse. And do NOT let the guard block the legitimate repeated case.
+TWO="$TMP/two-orchestrator"; mkdir -p "$TWO"
+printf 'og:orchestrate\n\n## Subject repos\n\n| Path | Prefix | Slug | Default branch |\n|---|---|---|---|\n| `a` | ALPHA | o/a | `main` |\n| `b` | BETA | o/b | `main` |\n\n## Project Rules\n\n12. **X.** y\n\n## End\n' > "$TWO/SKILL.md"
+cp "$TWO/SKILL.md" "$TMP/two.before"
+migrate_rules "$TWO" "$OGDIR" --apply >/dev/null 2>&1
+cmp -s "$TMP/two.before" "$TWO/SKILL.md" \
+  && ok "migrate: an overlay with TWO DIFFERENT prefixes refuses (file untouched)" \
+  || bad "migrate: multi-prefix overlay was rewritten" "rules went into a namespace nobody chose"
+
+DEP="$TMP/dep-orchestrator"; mkdir -p "$DEP"
+printf 'og:orchestrate\n\n## Subject repos\n\n| Path | Prefix | Slug | Default branch |\n|---|---|---|---|\n| `deployment` | DEPLOY | o/d | `master` |\n| `infra-deployment` | DEPLOY | o/i | `main` |\n\n## Project Rules\n\n12. **X.** y\n\n## End\n' > "$DEP/SKILL.md"
+migrate_rules "$DEP" "$OGDIR" --apply >/dev/null 2>&1
+grep -q '^DEPLOY-1\.' "$DEP/SKILL.md" \
+  && ok "migrate: multi-subject overlay repeating ONE prefix still migrates (not a blanket block)" \
+  || bad "migrate: the multi-prefix guard blocks the legitimate repeated case" "$(grep -E '^(DEPLOY|12)' "$DEP/SKILL.md")"
+
+# A malformed registry must be diagnosed as a JSON problem, not as an OG_ID problem.
+printf '{ not json' > "$TMP/bad.json"
+out=$(check_freshness "og@duplico" "$TMP/bad.json" 2>&1)
+case "$out" in
+  *"cannot parse"*) ok "check_freshness: a malformed registry says JSON, not 'no gitCommitSha'" ;;
+  *) bad "check_freshness misdiagnoses a jq failure" "got: $out" ;;
+esac
+
 echo
 printf 'pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -19,9 +19,14 @@ og_context() {   # sets ROOT OG OG_ID OG_VER REG ; RETURNS non-zero on any failu
   command -v jq >/dev/null || { echo "FATAL: jq is required" >&2; return 1; }
   [ -r "$REG" ] || { echo "FATAL: cannot read $REG -- is og installed?" >&2; return 1; }
   local sel="${OG_ID:-}" matches
+  # Check jq's EXIT STATUS, not just its output. A malformed registry made jq fail, `matches`
+  # came back empty, and the empty result was then reported as "need exactly one og install" --
+  # a confident, specific, wrong diagnosis that sends you editing OG_ID instead of fixing JSON.
   matches=$(jq -r --arg sel "$sel" '.plugins | to_entries[]
     | select(.key | startswith("og@")) | select($sel == "" or .key == $sel)
-    | "\(.key)\t\(.value[0].installPath)\t\(.value[0].version)"' "$REG")
+    | "\(.key)\t\(.value[0].installPath)\t\(.value[0].version)"' "$REG") || {
+    echo "FATAL: cannot parse $REG as JSON (jq failed). This is not an OG_ID problem." >&2
+    return 1; }
   [ "$(printf '%s' "$matches" | grep -c .)" -eq 1 ] || {
     echo "FATAL: need exactly one og install; set OG_ID=og@<marketplace>. Found:" >&2
     printf '%s\n' "$matches" | cut -f1 | sed 's/^/  /' >&2; return 1; }
@@ -141,7 +146,10 @@ classify_path() {  # $1 = path, $2 = subject repo dir, $3 = ROOT (optional). OK|
 # ---- Phase 1: staleness by SHA, with NO silent pass ----
 check_freshness() {  # $1 = OG_ID, $2 = REG
   local og_id="$1" reg="$2" sha mp up
-  sha=$(jq -r --arg k "$og_id" '.plugins[$k][0].gitCommitSha // empty' "$reg")
+  # Same distinction: "the registry has no SHA for this plugin" and "the registry is not valid
+  # JSON" have different remedies, and collapsing them points at the wrong one.
+  sha=$(jq -r --arg k "$og_id" '.plugins[$k][0].gitCommitSha // empty' "$reg") \
+    || { echo "UNVERIF: cannot parse $reg as JSON (jq failed) -- fix the registry, not the plugin"; return 2; }
   [ -n "$sha" ] || { echo "UNVERIF: installed_plugins.json has no gitCommitSha for $og_id"; return 2; }
   mp="$HOME/.claude/plugins/marketplaces/${og_id#*@}"
   if [ ! -d "$mp/.git" ]; then
@@ -168,10 +176,22 @@ check_freshness() {  # $1 = OG_ID, $2 = REG
 # Safety: build an explicit old->new map first, apply only that map, and assert the rule count
 # is preserved. Never a blind substitution.
 
-rule_prefix_of() {   # $1 = overlay dir. Prints the declared prefix from ## Subject repos.
-  awk '/^## Subject repos/{f=1;next} /^## /{f=0} f' "$1/SKILL.md" \
+rule_prefix_of() {   # $1 = overlay dir. Prints the declared prefix. rc=1 if AMBIGUOUS.
+  # An overlay has ONE flat list of Project Rules, so it has ONE prefix -- every subject row is
+  # expected to repeat it (deployment + infra-deployment both say DEPLOY). But `head -1` across
+  # rows declaring DIFFERENT prefixes silently picked the first, and migrate_rules would then
+  # rewrite every rule into a namespace the author never chose. Refuse; do not guess.
+  local all uniq
+  all=$(awk '/^## Subject repos/{f=1;next} /^## /{f=0} f' "$1/SKILL.md" \
     | grep -E '^\|' | grep -viE '^\| *Path' | grep -vE '^\|[ :-]*\|' \
-    | sed 's/^| *//; s/ *| */\t/g' | tr -d '`' | cut -f2 | grep -E '^[A-Z][A-Z0-9]*$' | head -1
+    | sed 's/^| *//; s/ *| */\t/g' | tr -d '`' | cut -f2 | grep -E '^[A-Z][A-Z0-9]*$')
+  uniq=$(printf '%s\n' "$all" | sort -u | grep -c . )
+  if [ "$uniq" -gt 1 ]; then
+    echo "FATAL: $1 declares MORE THAN ONE rule prefix: $(printf '%s' "$all" | sort -u | tr '\n' ' ')" >&2
+    echo "       An overlay has one rule list, so it has one prefix. Pick one." >&2
+    return 1
+  fi
+  printf '%s\n' "$all" | head -1
 }
 
 suggest_prefix() {   # $1 = overlay dir. A CANDIDATE prefix for a table that has none.
@@ -208,7 +228,12 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
     echo "         The contract is that --report-only changes NOTHING. Not negotiable here." >&2
     return 1
   fi
-  local prefix; prefix=$(rule_prefix_of "$ov")
+  # Honour the exit status. rule_prefix_of now FATALs on an ambiguous (multi-prefix) table, and
+  # treating that as "no prefix" would print the wrong remedy -- "add a Prefix column" to a table
+  # that has two of them.
+  local prefix rc
+  prefix=$(rule_prefix_of "$ov"); rc=$?
+  [ "$rc" -eq 0 ] || return 1
   if [ -z "$prefix" ]; then
     echo "FATAL: $ov has no Prefix in its ## Subject repos table"
     echo "       It has $(awk '/^## Project Rules/{f=1;next} /^## /{if(f)exit} f' "$f" | grep -cE '^[0-9]+\. \*\*') legacy rule(s) to migrate, and a prefix is not something this can guess."
