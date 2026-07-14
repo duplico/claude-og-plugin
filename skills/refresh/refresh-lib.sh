@@ -49,11 +49,11 @@ subjects_of() {   # $1 = overlay dir, $2 = ROOT ; prints path<TAB>PREFIX<TAB>slu
          | sed 's/^| *//; s/ *|$//; s/ *| */\t/g' | tr -d '`')
   if [ -n "$rows" ]; then printf '%s\n' "$rows"; return 0; fi
   name=$(basename "$1" -orchestrator)
-  if [ -d "$root/$name" ]; then printf '%s\t?\t?\n' "$name"; return 2; fi   # 2 = provisional
+  if [ -d "$root/$name" ]; then printf '%s\t?\t?\t?\n' "$name"; return 2; fi  # 2 = provisional
   # A single-repo project's overlay is ABOUT the repo it lives in. Without this, every
   # single-repo project -- which is most of them -- resolves to UNRESOLVED and the skill
   # checks nothing at all, while reporting no drift.
-  printf '.\t?\t?\n'; return 2
+  printf '.\t?\t?\t?\n'; return 2
 }
 
 # ---- Phase 3: lowest project-rule number, SCOPED to the ## Project Rules section ----
@@ -187,9 +187,12 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
       # reference, or a STALE project citation from before some earlier renumber. We cannot
       # tell from the number alone. Print the universal rule's TITLE so a human spots a
       # mis-mapping instantly instead of discovering it months later.
+      # Accept both header formats: an older installed plugin still uses "### N." Without this
+      # the title comes back empty and the CONFIRM line loses the one thing that makes it
+      # actionable -- the human cannot see WHICH rule they are being pointed at.
       local title
-      title=$(grep -m1 "^### OG-${cite}\." "$og/docs/universal-orchestrator-rules.md" \
-              | sed "s/^### OG-${cite}\. *//")
+      title=$(grep -m1 -E "^### (OG-)?${cite}\." "$og/docs/universal-orchestrator-rules.md" \
+              | sed -E "s/^### (OG-)?${cite}\. *//")
       echo "    cite Rule ${cite} -> OG-${cite}  CONFIRM: \"${title}\""
       echo "        ^ if that is not what the overlay meant, it is a STALE citation of a"
       echo "          project rule from before a renumber. Fix it by hand BEFORE applying."

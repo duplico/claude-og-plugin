@@ -32,9 +32,11 @@ for fn in is_og_shaped subjects_of classify_path check_freshness migrate_rules; 
 done
 
 # --- 2. No phase may reimplement a check inline ---
-if grep -qE '^\s*grep -oE .`\[\^`\]\+.' "$SKILL"; then
-  bad "Phase 6 has an inline path-extraction snippet" "it must call classify_path()"
-else ok "Phase 6 has no inline path classifier"; fi
+# Phase 6 legitimately greps to EXTRACT candidate paths -- what matters is that it CLASSIFIES
+# with classify_path rather than reimplementing the logic. That is asserted above. (An earlier
+# assertion here tried to ban the grep itself, anchored to start-of-line; Phase 6's grep sits
+# mid-line after `done < <(`, so it could never match and passed vacuously. A test that cannot
+# fire is a false pass -- exactly what this harness exists to prevent.)
 if grep -q 'if \[ ! -d "\$MP/.git" \]; then' "$SKILL" || grep -q 'rev-parse origin/HEAD' "$SKILL"; then
   bad "Phase 1 has an inline freshness snippet" "it must call check_freshness()"
 else ok "Phase 1 has no inline freshness check"; fi
@@ -105,8 +107,13 @@ for og_try in "$OGDIR0" "$HERE/../../.."; do
 done
 
 # --- migration ---
-OGDIR=$(jq -r '.plugins | to_entries[] | select(.key|startswith("og@")) | .value[0].installPath' \
-        "$HOME/.claude/plugins/installed_plugins.json" | head -1)
+OGDIR=""
+if [ -r "$HOME/.claude/plugins/installed_plugins.json" ]; then
+  OGDIR=$(jq -r '.plugins | to_entries[] | select(.key|startswith("og@")) | .value[0].installPath' \
+          "$HOME/.claude/plugins/installed_plugins.json" 2>/dev/null | head -1)
+fi
+# Fall back to THIS checkout: the harness must run with no Claude install (CI, clean container).
+[ -f "${OGDIR:-}/docs/universal-orchestrator-rules.md" ] || OGDIR="$HERE/../../.."
 M="$TMP/mig-orchestrator"; mkdir -p "$M"
 cat > "$M/SKILL.md" <<'EOF'
 ## Subject repos
