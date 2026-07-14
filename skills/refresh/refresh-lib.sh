@@ -181,7 +181,16 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
     if printf '%s' "$map" | grep -q "^${cite}="; then
       echo "    cite Rule ${cite} -> $(printf '%s' "$map" | grep "^${cite}=" | cut -d= -f2)  (own rule)"
     elif [ "$cite" -le "$ogmax" ]; then
-      echo "    cite Rule ${cite} -> OG-${cite}  (universal)"
+      # AMBIGUOUS BY NATURE: a legacy citation inside og's range is either a genuine universal
+      # reference, or a STALE project citation from before some earlier renumber. We cannot
+      # tell from the number alone. Print the universal rule's TITLE so a human spots a
+      # mis-mapping instantly instead of discovering it months later.
+      local title
+      title=$(grep -m1 "^### OG-${cite}\." "$og/docs/universal-orchestrator-rules.md" \
+              | sed "s/^### OG-${cite}\. *//")
+      echo "    cite Rule ${cite} -> OG-${cite}  CONFIRM: \"${title}\""
+      echo "        ^ if that is not what the overlay meant, it is a STALE citation of a"
+      echo "          project rule from before a renumber. Fix it by hand BEFORE applying."
     else
       echo "    cite Rule ${cite} -> *** AMBIGUOUS: not one of this overlay's rules and beyond OG-${ogmax}. Resolve by hand. ***"
     fi
