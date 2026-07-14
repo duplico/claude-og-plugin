@@ -213,7 +213,7 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
     else
       echo "    cite Rule ${cite} -> *** AMBIGUOUS: not one of this overlay's rules and beyond OG-${ogmax}. Resolve by hand. ***"
     fi
-  done < <(grep -oE '\bRule [0-9]+' "$f" | grep -oE '[0-9]+' | sort -un)
+  done < <(grep -oE '(^|[^A-Za-z0-9_])Rule [0-9]+' "$f" | grep -oE '[0-9]+' | sort -un)
 
   [ "$mode" = "--apply" ] || return 0
 
@@ -237,7 +237,7 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
       perl -pi -e "s/\bRule \Q${cite}\E\b/${new}/g" "$tmp"
     fi
     # Citations inside og's range are deliberately LEFT ALONE -- see the reasoning above.
-  done < <(grep -oE '\bRule [0-9]+' "$tmp" | grep -oE '[0-9]+' | sort -un)
+  done < <(grep -oE '(^|[^A-Za-z0-9_])Rule [0-9]+' "$tmp" | grep -oE '[0-9]+' | sort -un)
   # 3. the section header no longer carries a range
   perl -pi -e 's/^## Project Rules \([^)]*\)\s*$/## Project Rules/m' "$tmp"
 

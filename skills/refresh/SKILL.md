@@ -142,7 +142,10 @@ Rules restart at **1** after migration -- they no longer have to dodge the plugi
 ### Citations must resolve
 
 ```bash
-grep -oE '\b[A-Z][A-Z0-9]*-[0-9]+\b' "$ov/SKILL.md" | sort -u   # OG-3, DEPLOY-1, ...
+# NOT `\b`: that is a GNU grep extension. BSD/macOS `grep -E` does not treat it as a word
+# boundary, so it matches NOTHING -- and an empty result here reads as "no citations".
+grep -oE '(^|[^A-Za-z0-9_])[A-Z][A-Z0-9]*-[0-9]+' "$ov/SKILL.md" \
+  | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | sort -u        # OG-3, DEPLOY-1, ...
 ```
 
 Every `OG-N` must exist in the plugin's rules doc; every `<PREFIX>-N` must exist in an overlay reachable from here. A citation that does not resolve is a real bug -- and it used to be an *invisible* one: under the old shared number line, an overlay saying "see Rule 11" (meaning its own eleventh rule) silently began resolving to universal `OG-11`, a real rule that says something else entirely. Prefixes make that impossible; this catches the leftovers.

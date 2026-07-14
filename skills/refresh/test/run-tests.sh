@@ -98,8 +98,25 @@ got=$(classify_path "docs/shared.md" "$TMP/wsroot/subj" "$TMP/wsroot")
 [ "$got" = "OK" ] && ok "classify_path(workspace-relative) -> OK" \
   || bad "classify_path(workspace-relative)" "expected OK (present at ROOT), got '$got'"
 # and Phase 0 must accept rc=2 (provisional), not treat it as a failure
-grep -q 'rc" -eq 1' "$SKILL" && ok "Phase 0 treats rc=2 (provisional) as usable" \
-  || bad "Phase 0 rejects provisional subjects" "|| after subjects_of drops every single-repo project"
+# Phase 0 must treat rc=2 (provisional) as USABLE and only rc=1 as unresolved. Grepping for a
+# string is not enough -- it would pass if the string sat in a comment. Assert BOTH that the
+# rc==1 guard is present in a code fence AND that the buggy `subjects_of ... ||` form (which
+# fires on rc=2 and silently skips every single-repo project) is absent.
+guard=$(awk '/^```/{f=!f;next} f' "$SKILL" | grep -c 'rc" -eq 1' || true)
+buggy=$(awk '/^```/{f=!f;next} f' "$SKILL" | grep -cE 'subjects_of [^|]*\|\|' || true)
+if [ "$guard" -ge 1 ] && [ "$buggy" -eq 0 ]; then
+  ok "Phase 0 accepts rc=2 (provisional) and has no '|| skip' on subjects_of"
+else
+  bad "Phase 0 provisional handling" "guard_in_code=$guard buggy_or_form=$buggy -- '|| after subjects_of' fires on rc=2 and drops every single-repo project"
+fi
+
+# The \b word-boundary bug must not come back: it is GNU-only, matches nothing on BSD, and an
+# empty citation set reads as "no citations" while the rules get rewritten anyway.
+if grep -rq "grep -oE '\\\\b" "$HERE/.." ; then
+  bad "GNU-only \\b in a grep -E pattern" "BSD/macOS grep -E does not support \\b -- it would match nothing and silently skip every citation"
+else
+  ok "no GNU-only \\b in any grep -E pattern"
+fi
 
 t_shape() { is_og_shaped "$TMP/$1" && r=og || r=legacy
   [ "$r" = "$2" ] && ok "is_og_shaped($1) = $2" || bad "is_og_shaped($1)" "expected $2, got $r"; }
