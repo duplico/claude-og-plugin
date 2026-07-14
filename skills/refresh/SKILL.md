@@ -28,6 +28,10 @@ So the checks are **code, not prose** -- shipped in `refresh-lib.sh` beside this
 
 ```bash
 REG="$HOME/.claude/plugins/installed_plugins.json"
+command -v jq >/dev/null || { echo "FATAL: jq is required"; exit 1; }
+[ -r "$REG" ] || { echo "FATAL: cannot read $REG -- is the og plugin installed?"; exit 1; }
+# Check those FIRST: without them, jq fails silently and the script falls through to "need
+# exactly one og install", which points at entirely the wrong problem.
 # Do NOT `head -1` here: with two og installs that silently sources the WRONG library, before
 # og_context's guard ever runs. Require exactly one, or bail to the same OG_ID escape hatch.
 # NOT `mapfile`: that is bash 4+, and macOS still ships bash 3.2.
@@ -123,7 +127,9 @@ done
 # Note the loop: applying outside it would migrate only the LAST overlay and silently leave
 # the rest on legacy numbering, while reporting success.
 for ov in "${OVERLAYS[@]}"; do
-  migrate_rules "$ov" "$OG" --apply || echo "  migration FAILED for $ov -- stopping"
+  # A failed migration must STOP, not continue: `|| echo` would leave later overlays migrated
+  # while an earlier one failed -- a partial migration, which is the thing we refuse to write.
+  migrate_rules "$ov" "$OG" --apply || { echo "  migration FAILED for $ov -- stopping"; break; }
 done
 ```
 
@@ -191,12 +197,17 @@ Extract the paths each overlay references and classify each with `classify_path`
 
 ```bash
 for ov in "${OVERLAYS[@]}"; do
-  SUB=$(subjects_of "$ov" "$ROOT" | head -1 | cut -f1)
-  BASE="$ROOT/$SUB"; [ "$SUB" = "." ] && BASE="$ROOT"
-  while read -r p; do
-    [ -n "$p" ] && printf '%s  [%s] %s\n' "$(classify_path "$p" "$BASE" "$ROOT")" "$(basename "$ov")" "$p"
-  done < <(grep -oE '`[^`]+`' "$ov/SKILL.md" | tr -d '`' \
-           | grep -E '^(~/|\./|[A-Za-z0-9_.-]+/)' | grep -E '\.(md|json|ya?ml|sh|py|tf)$' | sort -u)
+  # EVERY subject, not just the first: a multi-repo overlay (deployment + infra-deployment)
+  # would otherwise have its second repo's paths silently unchecked.
+  while IFS= read -r SUB; do
+    [ -n "$SUB" ] || continue
+    BASE="$ROOT/$SUB"; [ "$SUB" = "." ] && BASE="$ROOT"
+    while read -r p; do
+      [ -n "$p" ] && printf '%s  [%s:%s] %s\n' \
+        "$(classify_path "$p" "$BASE" "$ROOT")" "$(basename "$ov")" "$SUB" "$p"
+    done < <(grep -oE '`[^`]+`' "$ov/SKILL.md" | tr -d '`' \
+             | grep -E '^(~/|\./|[A-Za-z0-9_.-]+/)' | grep -E '\.(md|json|ya?ml|sh|py|tf)$' | sort -u)
+  done < <(subjects_of "$ov" "$ROOT" | cut -f1)
 done | grep -v '^OK'
 ```
 

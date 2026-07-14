@@ -57,7 +57,6 @@ subjects_of() {   # $1 = overlay dir, $2 = ROOT ; prints path<TAB>PREFIX<TAB>slu
   return 1   # cannot tell -- the caller must report it, not guess
 }
 
-# ---- Phase 3: lowest project-rule number, SCOPED to the ## Project Rules section ----
 # ---- Phase 6: classify a referenced path against its SUBJECT repo ----
 classify_path() {  # $1 = path, $2 = subject repo dir, $3 = ROOT (optional). OK|DANGLING|UNVERIF|SKIP
   local p="$1" base="$2" root="${3:-}" t
@@ -195,36 +194,68 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
 
   [ "$mode" = "--apply" ] || return 0
 
-  # perl does the rewrites. Check BEFORE we start, or a missing perl surfaces as a cryptic
-  # "rewrote 0 of N rules" abort instead of the actual cause.
-  command -v perl >/dev/null || { echo "    FATAL: perl is required for --apply"; return 1; }
-
-  # Templated: a bare `mktemp` is GNU-only; BSD/macOS requires a template.
   local tmp
   tmp=$(mktemp "${TMPDIR:-/tmp}/og-refresh.XXXXXX") || { echo "    FATAL: cannot create a temp file"; return 1; }
-  cp "$f" "$tmp"
-  # 1. rule headers, descending so a shift never collides mid-edit
-  for n in $(printf '%s\n' "$nums" | sort -rn); do
-    new=$(printf '%s' "$map" | grep "^${n}=" | cut -d= -f2)
-    perl -0pi -e "s/^\Q${n}\E\. \*\*/${new}. **/mg; s/^\*\*Rule \Q${n}\E /\*\*${new} /mg" "$tmp"
-  done
-  # 2. citations
-  while read -r cite; do
-    if printf '%s' "$map" | grep -q "^${cite}="; then
-      new=$(printf '%s' "$map" | grep "^${cite}=" | cut -d= -f2)
-      perl -pi -e "s/\bRule \Q${cite}\E\b/${new}/g" "$tmp"
-    fi
-    # Citations inside og's range are deliberately LEFT ALONE -- see the reasoning above.
-  done < <(grep -oE '(^|[^A-Za-z0-9_])Rule [0-9]+' "$tmp" | grep -oE '[0-9]+' | sort -un)
-  # 3. the section header no longer carries a range
-  perl -pi -e 's/^## Project Rules \([^)]*\)\s*$/## Project Rules/m' "$tmp"
 
-  # 4. ASSERT: the rule count survived. A silent no-op reads as "already correct".
-  local got; got=$(awk '/^## Project Rules/{f=1;next} /^## /{if(f)exit} f' "$tmp" \
-                   | grep -cE "^${prefix}-[0-9]+\. \*\*|^\*\*${prefix}-[0-9]+ ")
-  local want; want=$(printf '%s\n' "$nums" | wc -l | tr -d ' ')
-  if [ "$got" -ne "$want" ]; then
-    echo "    ABORT: rewrote $got of $want rules -- refusing to write a half-migrated file"
+  # BOUNDED AND FENCE-AWARE. A global substitution here corrupts the file: an unrelated
+  # numbered list elsewhere in the overlay (an Ansible playbook list, a checklist) and any
+  # "12. **x**" inside a ``` example get rewritten into rules. This skill's own doctrine says
+  # "bound every substitution to the ## Project Rules section" -- so do it, in one awk pass
+  # that tracks section and fence state, instead of `perl -pi` across the whole file.
+  #
+  # Citations ARE rewritten anywhere in the file (they can legitimately appear in the agent
+  # table, prose, etc.) -- but only for numbers in the map, i.e. this overlay's own rules.
+  # Citations inside og's range are deliberately left alone (see above).
+  awk -v map="$map" -v prefix="$prefix" '
+    BEGIN {
+      n = split(map, rows, "\n")
+      for (i = 1; i <= n; i++) {
+        if (rows[i] == "") continue
+        split(rows[i], kv, "=")
+        old[kv[1]] = kv[2]
+      }
+    }
+    /^```/ { fence = !fence; print; next }
+    fence  { print; next }                      # never touch anything inside a fence
+
+    /^## Project Rules/ { inrules = 1; sub(/ *\([^)]*\) *$/, ""); print; next }
+    /^## /              { inrules = 0 }
+
+    {
+      line = $0
+      # rule HEADERS: only inside the ## Project Rules section
+      if (inrules) {
+        for (k in old) {
+          if (line ~ ("^" k "\\. \\*\\*"))      { sub("^" k "\\.", old[k] ".", line); break }
+          if (line ~ ("^\\*\\*Rule " k " "))      { sub("^\\*\\*Rule " k " ", "**" old[k] " ", line); break }
+        }
+      }
+      print line
+    }
+  ' "$f" > "$tmp"
+
+  # Citations: a separate, explicit pass, only for numbers in the map (this overlay is own
+  # rules). Bounded by the map, so a number not in it is never touched.
+  local n new2
+  for n in $nums; do
+    new2=$(printf '%s' "$map" | grep "^${n}=" | cut -d= -f2)
+    perl -pi -e "s/(^|[^A-Za-z0-9_])Rule ${n}\b/\${1}${new2}/g" "$tmp" 2>/dev/null \
+      || perl -pi -e "s/(^|[^A-Za-z0-9_])Rule ${n}(?![0-9])/\$1${new2}/g" "$tmp"
+  done
+
+  # ASSERT: the rule count survived, and NOTHING outside the section was renamed.
+  local got want outside
+  got=$(awk '/^## Project Rules/{f=1;next} /^## /{if(f)exit} f' "$tmp" \
+        | grep -cE "^${prefix}-[0-9]+\. \*\*|^\*\*${prefix}-[0-9]+ ")
+  want=$(printf '%s\n' "$nums" | wc -l | tr -d ' ')
+  outside=$(awk -v p="$prefix" '
+      /^```/ {fence=!fence; next} fence {next}
+      /^## Project Rules/ {inr=1; next} /^## / {inr=0}
+      !inr && $0 ~ ("^" p "-[0-9]+\\.") {c++}
+      END {print c+0}' "$tmp")
+  if [ "$got" -ne "$want" ] || [ "$outside" -ne 0 ]; then
+    echo "    ABORT: rewrote $got of $want rules, and $outside line(s) OUTSIDE the rules section"
+    echo "           -- refusing to write a corrupted file"
     rm -f "$tmp"; return 1
   fi
   mv "$tmp" "$f"
