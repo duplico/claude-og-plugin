@@ -45,8 +45,8 @@ bad()  { printf '  FAIL %s\n     %s\n' "$1" "$2"; fail=$((fail+1)); }
 # So: look for a call-shaped use INSIDE a fenced code block.
 calls_in_fence() {   # $1 = function name -> prints the number of call-shaped uses in fences
   awk -v fn="$1" '
-    /^```bash/ { fence = 1; next }        # ONLY a bash fence is code. An untagged fence
-    /^```/     { fence = 0; next }        # (the Phase 8 example report) is OUTPUT, not code:
+    /^ ? ? ?```bash/ { fence = 1; next }        # ONLY a bash fence is code. An untagged fence
+    /^ ? ? ?```/     { fence = 0; next }        # (the Phase 8 example report) is OUTPUT, not code:
                                           # counting it let a decoy there fake a wiring pass.
     !fence { next }
     /^[ \t]*#/ { next }    # a comment NAMING a function is not a CALL of it
@@ -116,8 +116,8 @@ got=$(classify_path "docs/shared.md" "$TMP/wsroot/subj" "$TMP/wsroot")
 # string is not enough -- it would pass if the string sat in a comment. Assert BOTH that the
 # rc==1 guard is present in a code fence AND that the buggy `subjects_of ... ||` form (which
 # fires on rc=2 and silently skips every single-repo project) is absent.
-guard=$(awk '/^```bash/{f=1;next} /^```/{f=0;next} f' "$SKILL" | grep -c 'rc" -eq 1' || true)
-buggy=$(awk '/^```bash/{f=1;next} /^```/{f=0;next} f' "$SKILL" | grep -cE 'subjects_of [^|]*\|\|' || true)
+guard=$(awk '/^ ? ? ?```bash/{f=1;next} /^ ? ? ?```/{f=0;next} f' "$SKILL" | grep -c 'rc" -eq 1' || true)
+buggy=$(awk '/^ ? ? ?```bash/{f=1;next} /^ ? ? ?```/{f=0;next} f' "$SKILL" | grep -cE 'subjects_of [^|]*\|\|' || true)
 if [ "$guard" -ge 1 ] && [ "$buggy" -eq 0 ]; then
   ok "Phase 0 accepts rc=2 (provisional) and has no '|| skip' on subjects_of"
 else
@@ -127,7 +127,7 @@ fi
 # A failed --apply must halt the SKILL, not just the loop. `|| echo` does not stop at all;
 # `break` leaves the loop but lets Phases 4-8 run against a HALF-MIGRATED repo and report on it
 # as if it were consistent. Both spellings have shipped in this file already. Assert the exit.
-apply=$(awk '/^```bash/{f=1;next} /^```/{f=0;next} f' "$SKILL" | grep -A6 'migrate_rules .* --apply' || true)
+apply=$(awk '/^ ? ? ?```bash/{f=1;next} /^ ? ? ?```/{f=0;next} f' "$SKILL" | grep -A6 'migrate_rules .* --apply' || true)
 if grep -q 'exit 1' <<<"$apply"; then
   ok "Phase 3 --apply failure EXITS (does not fall through to later phases)"
 else
@@ -230,7 +230,7 @@ grep -q 'AMBIGUOUS' <<<"$out"             && ok "migrate: ambiguous citation FLA
 # byte of it. The header pass was fence-aware from the start; the CITATION pass was not, so a fence
 # saying "See Rule 12" got rewritten to "See THING-1" -- corrupting a block that quoted history
 # deliberately. Assert the fence is byte-identical, not merely that no rule HEADER leaked.
-fence=$(awk '/^```/{f=!f;next} f' "$M/SKILL.md")
+fence=$(awk '/^ ? ? ?```/{f=!f;next} f' "$M/SKILL.md")
 if [ "$fence" = '13. **Second.** See Rule 12 here.' ]; then
   ok "migrate: FENCED content byte-identical (header AND citation passes skip fences)"
 else
@@ -252,8 +252,8 @@ grep -q FATAL <<<"$fat" \
 # UNVERIF burying a proven DANGLING). None was visible to a harness that only greps SKILL.md.
 # So run it. VERBATIM from the fence -- a hand-copied version would test the copy and pass while
 # the real phase stayed broken, which is the whole failure mode this file exists to prevent.
-p6=$(awk '/^```bash/ {f=1; blk=""; next}
-           /^```/    {if (f && blk ~ /classify_path/) printf "%s", blk; f=0; next}
+p6=$(awk '/^ ? ? ?```bash/ {f=1; blk=""; next}
+           /^ ? ? ?```/    {if (f && blk ~ /classify_path/) printf "%s", blk; f=0; next}
            f         {blk = blk $0 "\n"}' "$SKILL")
 if [ -z "$p6" ]; then
   bad "could not extract Phase 6 from SKILL.md" "the end-to-end checks below would be vacuous"
@@ -280,6 +280,22 @@ else
     && ok "Phase 6: absent from EVERY visible subject hardens to a plain DANGLING" \
     || bad "Phase 6: should harden to DANGLING once every subject is checked out" "$out"
 fi
+
+# Legacy numbering can have GAPS (someone deleted a rule). The old arithmetic form
+# (n - first + 1) turned 12,14 into PREFIX-1,PREFIX-3 while announcing "PREFIX-1..PREFIX-2" --
+# non-contiguous IDs and a report that disagreed with the file. Rules are a list, not an
+# address space. Also: fences may be INDENTED up to 3 spaces and are still fences; a column-0
+# regex let migrate_rules rewrite inside one. Both in a single fixture.
+G="$TMP/gap-orchestrator"; mkdir -p "$G"
+printf 'og:orchestrate\n\n## Subject repos\n\n| Path | Prefix | Slug | Default branch |\n|---|---|---|---|\n| `.` | GAP | o/g | `main` |\n\n## Project Rules\n\n12. **A.** x\n14. **C.** See Rule 12.\n\n## Notes\n\n- a list item, with an INDENTED fence:\n\n   ```markdown\n   14. **C.** See Rule 12.\n   ```\n' > "$G/SKILL.md"
+migrate_rules "$G" "$OGDIR" --apply >/dev/null 2>&1
+rules=$(grep -cE '^GAP-[12]\. ' "$G/SKILL.md")
+[ "$rules" -eq 2 ] && ok "migrate: gapped legacy numbering renumbers CONTIGUOUSLY (12,14 -> GAP-1,GAP-2)" \
+  || bad "migrate: gapped numbering" "expected GAP-1 and GAP-2, got: $(grep -E '^GAP-' "$G/SKILL.md")"
+ind=$(awk '/^ ? ? ?```/{f=!f;next} f' "$G/SKILL.md" | tr -d ' ')
+[ "$ind" = '14.**C.**SeeRule12.' ] \
+  && ok "migrate: an INDENTED fence is still a fence (content untouched)" \
+  || bad "migrate: indented fence was rewritten" "got '$ind'"
 
 echo
 printf 'pass=%s fail=%s\n' "$pass" "$fail"

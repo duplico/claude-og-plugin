@@ -10,8 +10,10 @@
 # Every function here fails LOUDLY. Nothing returns an empty result that could be mistaken
 # for "clean" -- that is the single failure mode this skill exists to avoid.
 
+# NOTE: this library does NOT `set -u` for you. It used to, from inside og_context(), which
+# silently flipped nounset on in whatever shell sourced it -- a side effect that could break
+# caller code never written for it. The phases in SKILL.md set it themselves, visibly, up top.
 og_context() {   # sets ROOT OG OG_ID OG_VER REG ; RETURNS non-zero on any failure; callers must handle it (`og_context || exit 1`)
-  set -u
   ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "FATAL: not in a git repo" >&2; return 1; }
   REG="$HOME/.claude/plugins/installed_plugins.json"
   command -v jq >/dev/null || { echo "FATAL: jq is required" >&2; return 1; }
@@ -42,6 +44,13 @@ subjects_of() {   # $1 = overlay dir, $2 = ROOT ; prints path<TAB>PREFIX<TAB>slu
   if [ -n "$rows" ]; then printf '%s\n' "$rows"; return 0; fi
   name=$(basename -- "$1"); name=${name%-orchestrator}   # not `basename X -orchestrator`: a suffix
                                                        # beginning with - can parse as an option
+  # If the overlay could plausibly mean BOTH the root repo and a same-named subdirectory, that is
+  # a genuine ambiguity. Guessing either way is a silent wrong answer, and Phase 6 would then
+  # resolve every path against the wrong repo. Refuse, and make the human declare a table.
+  if [ -d "$root/$name" ] && [ "$name" = "$(basename -- "$root")" ]; then
+    echo "AMBIGUOUS: $1 could mean the root repo OR $root/$name -- declare a '## Subject repos' table" >&2
+    return 1
+  fi
   if [ -d "$root/$name" ]; then printf '%s\t?\t?\t?\n' "$name"; return 2; fi  # 2 = provisional
 
   # The "." fallback is ONLY for an overlay that is plausibly about the root repo itself --
@@ -146,15 +155,18 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
   # must not be mistaken for a rule).
   local nums; nums=$(awk '
       /^## Project Rules/ {inr=1; next} /^## / {if(inr) exit} !inr {next}
-      /^```/ {fence=!fence; next} fence {next}
+      /^ ? ? ?```/ {fence=!fence; next} fence {next}
       /^[0-9]+\. \*\*/ {print $1} /^\*\*Rule [0-9]+/ {print $2}
     ' "$f" | tr -d '.' | grep -oE '^[0-9]+$' | sort -n)
   [ -n "$nums" ] || { echo "$ov: no legacy rules (already migrated, or none)"; return 0; }
 
-  local first; first=$(printf '%s\n' "$nums" | head -1)
-  local n new map=""
+  # Ordinal position, NOT (n - first + 1): legacy numbering can have GAPS (a deleted rule), and
+  # the arithmetic form turned 12,14 into PREFIX-1,PREFIX-3 while announcing "PREFIX-1..PREFIX-2".
+  # Rules are a list, not an address space. Renumber them 1..N as they appear.
+  local n new i=0 map=""
   for n in $nums; do
-    new="${prefix}-$(( n - first + 1 ))"          # legacy rules restart at 1
+    i=$((i + 1))
+    new="${prefix}-${i}"
     map="${map}${n}=${new}"$'\n'
   done
 
@@ -216,7 +228,7 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
         old[kv[1]] = kv[2]
       }
     }
-    /^```/ { fence = !fence; print; next }
+    /^ ? ? ?```/ { fence = !fence; print; next }
     fence  { print; next }                      # never touch anything inside a fence
 
     /^## Project Rules/ { inrules = 1; sub(/ *\([^)]*\) *$/, ""); print; next }
@@ -244,7 +256,7 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
   local n new2
   for n in $nums; do
     new2=$(printf '%s' "$map" | grep "^${n}=" | cut -d= -f2)
-    perl -pi -e "if (/^\`\`\`/) { \$fence = !\$fence }
+    perl -pi -e "if (/^ ? ? ?\`\`\`/) { \$fence = !\$fence }
                  elsif (!\$fence) { s/(^|[^A-Za-z0-9_])Rule ${n}(?![0-9])/\${1}${new2}/g }" "$tmp"
   done
 
@@ -254,7 +266,7 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
         | grep -cE "^${prefix}-[0-9]+\. \*\*|^\*\*${prefix}-[0-9]+ ")
   want=$(printf '%s\n' "$nums" | wc -l | tr -d ' ')
   outside=$(awk -v p="$prefix" '
-      /^```/ {fence=!fence; next} fence {next}
+      /^ ? ? ?```/ {fence=!fence; next} fence {next}
       /^## Project Rules/ {inr=1; next} /^## / {inr=0}
       !inr && $0 ~ ("^" p "-[0-9]+\\.") {c++}
       END {print c+0}' "$tmp")
@@ -262,8 +274,8 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
   # one byte of it. The check above cannot see this: it `next`s past fences, so it was blind to
   # exactly the corruption that shipped. Assert the invariant directly instead.
   local fence_before fence_after
-  fence_before=$(awk '/^```/{f=!f;next} f' "$f")
-  fence_after=$(awk '/^```/{f=!f;next} f' "$tmp")
+  fence_before=$(awk '/^ ? ? ?```/{f=!f;next} f' "$f")
+  fence_after=$(awk '/^ ? ? ?```/{f=!f;next} f' "$tmp")
   if [ "$got" -ne "$want" ] || [ "$outside" -ne 0 ] || [ "$fence_before" != "$fence_after" ]; then
     echo "    ABORT: rewrote $got of $want rules, $outside line(s) OUTSIDE the rules section"
     [ "$fence_before" != "$fence_after" ] && echo "           and it MODIFIED FENCED CONTENT"

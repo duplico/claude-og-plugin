@@ -42,7 +42,10 @@ while IFS= read -r _p; do _og="$_p"; _n=$((_n + 1)); done < <(
     | .value[0].installPath' "$REG")
 [ "$_n" -eq 1 ] || { echo "FATAL: need exactly one og install; set OG_ID=og@<marketplace>"; exit 1; }
 . "$_og/skills/refresh/refresh-lib.sh"
-og_context || exit 1        # sets ROOT OG OG_ID OG_VER REG; FATALs loudly on any failure
+set -u                     # an unset var expanding to "" is the silent-empty failure this
+                           # skill exists to prevent. Set here, visibly -- NOT inside the lib,
+                           # where sourcing would flip it on in the caller behind their back.
+og_context || exit 1       # sets ROOT OG OG_ID OG_VER REG; FATALs loudly on any failure
 ```
 
 | Function | Does |
@@ -249,7 +252,9 @@ for ov in "${OVERLAYS[@]}"; do
     fi
     printf '%s  [%s:%s] %s\n' "$best" "$(basename "$ov")" "$where" "$p"
   done < <(grep -oE '`[^`]+`' "$ov/SKILL.md" | tr -d '`' \
-           | grep -E '^(~/|\./|[A-Za-z0-9_.-]+/)' | grep -E '\.(md|json|ya?ml|sh|py|tf)$' | sort -u)
+           | grep -E '^(~/|\./|[A-Za-z0-9_.-]+/)' \
+           | grep -E '\.(md|json|ya?ml|sh|py|tf|toml|cfg|ini|lock)$|/(Dockerfile|Makefile|[Jj]ustfile|Cargo\.toml|go\.mod)$' \
+           | sort -u)
 done | grep -v '^OK'
 ```
 
