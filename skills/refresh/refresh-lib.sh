@@ -70,7 +70,31 @@ subjects_of() {   # $1 = overlay dir, $2 = ROOT ; prints path<TAB>PREFIX<TAB>slu
 # ---- Phase 6: classify a referenced path against its SUBJECT repo ----
 classify_path() {  # $1 = path, $2 = subject repo dir, $3 = ROOT (optional). OK|IMPRECISE|DANGLING|UNVERIF|SKIP
   local p="$1" base="$2" root="${3:-}" t
-  case "$p" in *'*'*) echo "SKIP glob"; return 0 ;; esac      # globs are patterns, not paths
+  # A PATTERN is not a path, and reporting one as DANGLING is the "delete correct documentation"
+  # failure again. Docs are full of them and only `*` was recognised, so on the real workspace
+  # `terraform/YYYY/{quals,regionals}/`, `ansible/roles/YYYY/` and `docs/repo/<repo>/` were all
+  # reported dangling while the real directories sat right there.
+  case "$p" in
+    *'*'*|*'?'*|*'['*) echo "SKIP glob";                return 0 ;;
+    *'{'*|*'}'*)       echo "SKIP brace expansion";     return 0 ;;   # {quals,regionals}
+    *'<'*|*'>'*)       echo "SKIP placeholder";         return 0 ;;   # docs/repo/<repo>/
+  esac
+  # A path SEGMENT that is one uppercase letter repeated is a placeholder by convention -- YYYY
+  # for a year, NNNN for a number. Deliberately narrow: `CODEOWNERS` and `API` are real names and
+  # must still be checked, so this does not skip all-caps segments in general.
+  if printf '%s' "$p" | awk -F/ '
+       { for (i = 1; i <= NF; i++) {
+           s = $i
+           if (length(s) < 3) continue
+           c = substr(s, 1, 1)
+           if (c !~ /[A-Z]/) continue
+           same = 1
+           for (j = 2; j <= length(s); j++) if (substr(s, j, 1) != c) { same = 0; break }
+           if (same) { found = 1; exit }
+         } }
+       END { exit(found ? 0 : 1) }' 2>/dev/null; then
+    echo "SKIP placeholder segment"; return 0
+  fi
 
   # Cannot SEE the subject repo (worktree, partial clone)? Then nothing about it is checkable.
   # UNVERIFIABLE, not wrong -- calling it dangling is how a refresh talks someone into

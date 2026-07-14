@@ -356,6 +356,21 @@ case "$(classify_path 'genuinely/absent.tf' "$S")" in
   *) bad "classify_path: absent path" "got '$(classify_path 'genuinely/absent.tf' "$S")', want DANGLING" ;;
 esac
 
+# PATTERNS are not paths. Real overlays are full of them and only `*` was recognised, so on the
+# real workspace `terraform/YYYY/{quals,regionals}/`, `ansible/roles/YYYY/` and `docs/repo/<repo>/`
+# were all reported DANGLING while the real directories sat right there. The narrowness matters
+# as much as the rule: CODEOWNERS and API are real names and must still be CHECKED.
+t_skip() {  # $1 = path, $2 = expected verdict prefix
+  local got; got=$(classify_path "$1" "$S")
+  case "$got" in "$2"*) ok "classify_path($1) -> $2" ;;
+    *) bad "classify_path($1)" "expected $2, got '$got'" ;; esac
+}
+t_skip 'terraform/YYYY/{quals,regionals}/' 'SKIP brace'
+t_skip 'docs/repo/<repo>/'                 'SKIP placeholder'
+t_skip 'ansible/roles/YYYY/'               'SKIP placeholder segment'
+t_skip 'terraform/**/*.tf'                 'SKIP glob'
+t_skip '.github/CODEOWNERS'                'DANGLING'   # a real all-caps NAME is not a placeholder
+
 echo
 printf 'pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
