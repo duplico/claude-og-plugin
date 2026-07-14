@@ -330,7 +330,10 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
     else
       echo "    cite Rule ${cite} -> *** AMBIGUOUS: not one of this overlay's rules and beyond OG-${ogmax}. Resolve by hand. ***"
     fi
-  done < <(grep -oE '(^|[^A-Za-z0-9_])Rule [0-9]+' "$f" | grep -oE '[0-9]+' | sort -un)
+  # FENCE-AWARE, like both rewrite passes. The scan was not, so a `Rule 2` inside a fenced example
+  # was REPORTED as a citation needing a hand-fix -- for a code block nothing would ever touch.
+  done < <(awk '/^ ? ? ?```/{fence=!fence; next} !fence' "$f" \
+           | grep -oE '(^|[^A-Za-z0-9_])Rule [0-9]+' | grep -oE '[0-9]+' | sort -un)
 
   [ "$mode" = "--apply" ] || return 0
 

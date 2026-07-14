@@ -179,7 +179,10 @@ Rules restart at **1** after migration -- they no longer have to dodge the plugi
 ```bash
 # NOT `\b`: that is a GNU grep extension. BSD/macOS `grep -E` does not treat it as a word
 # boundary, so it matches NOTHING -- and an empty result here reads as "no citations".
-grep -oE '(^|[^A-Za-z0-9_])[A-Z][A-Z0-9]*-[0-9]+' "$ov/SKILL.md" \
+# Fence-aware, like every other pass: a citation inside a quoted example is not a citation the
+# overlay is making, and reporting it sends the user to hand-fix a code block.
+awk '/^ ? ? ?```/{fence=!fence; next} !fence' "$ov/SKILL.md" \
+  | grep -oE '(^|[^A-Za-z0-9_])[A-Z][A-Z0-9]*-[0-9]+' \
   | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | sort -u        # OG-3, DEPLOY-1, ...
 ```
 

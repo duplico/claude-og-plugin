@@ -456,6 +456,22 @@ else
   fi
 fi
 
+# The citation SCAN must be fence-aware too, not just the two rewrite passes. It was not, so a
+# `Rule 2` quoted inside a fenced example got REPORTED as a citation needing a hand-fix -- for a
+# code block that nothing would ever rewrite. Busywork, and it teaches the user to distrust the
+# report. The fixture's fence cites Rule 12 (own) and Rule 99 (ambiguous); neither may appear.
+FC="$TMP/fencecite-orchestrator"; mkdir -p "$FC"
+printf 'og:orchestrate\n\n## Subject repos\n\n| Path | Prefix | Slug | Default branch |\n|---|---|---|---|\n| `.` | FC | o/f | `main` |\n\n## Project Rules\n\n12. **A.** See Rule 12.\n\n## Notes\n\n```markdown\n13. **B.** Required by Rule 2 and see Rule 99.\n```\n' > "$FC/SKILL.md"
+out=$(migrate_rules "$FC" "$OGDIR" --dry 2>&1)
+if grep -qE 'Rule (2|99) ->' <<<"$out"; then
+  bad "citation scan reports citations INSIDE a fence" "nothing rewrites them; the report is busywork: $out"
+else
+  ok "citation scan skips fenced content (only real citations reported)"
+fi
+grep -q 'cite Rule 12 -> FC-1' <<<"$out" \
+  && ok "citation scan still reports the REAL citation outside the fence" \
+  || bad "citation scan now misses real citations" "over-corrected: $out"
+
 echo
 printf 'pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
