@@ -30,7 +30,7 @@ og_context() {   # sets ROOT OG OG_ID OG_VER REG ; exits on any failure
 
 # ---- Gate A: og-shaped? (\bog: anchored -- 'Changelog:' must NOT match) ----
 is_og_shaped() {  # $1 = overlay dir
-  grep -qE '(^|[^A-Za-z])og:|og plugin|universal-orchestrator-rules' "$1/SKILL.md"
+  grep -qE '(^|[^A-Za-z0-9_])og:|og plugin|universal-orchestrator-rules' "$1/SKILL.md"
 }
 
 # ---- Gate B: resolve subject repos from the declaration (EXECUTABLE) ----

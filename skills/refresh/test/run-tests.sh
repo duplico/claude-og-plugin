@@ -121,6 +121,16 @@ else
   bad "Phase 0 provisional handling" "guard_in_code=$guard buggy_or_form=$buggy -- '|| after subjects_of' fires on rc=2 and drops every single-repo project"
 fi
 
+# Bash-4-only builtins must not creep in: macOS ships bash 3.2, where `mapfile`/`readarray`
+# is a "command not found" and the array is silently EMPTY -- so the loop over it runs zero
+# times and every check inside it is skipped while the run reports success. SKILL.md line ~37
+# already warns about exactly this, and a mapfile still got added; prose is not a guard.
+if grep -rqE --exclude="$(basename "$0")" '(^|[^A-Za-z0-9_])(mapfile|readarray)[ 	]' "$HERE/.."; then
+  bad "bash-4-only mapfile/readarray" "macOS ships bash 3.2: the array comes back EMPTY and every check inside the loop is silently skipped. Offender(s): $(grep -rlE --exclude="$(basename "$0")" '(^|[^A-Za-z0-9_])(mapfile|readarray)[ 	]' "$HERE/..")"
+else
+  ok "no bash-4-only mapfile/readarray (bash 3.2 safe)"
+fi
+
 # The \b word-boundary bug must not come back: it is GNU-only, matches nothing on BSD, and an
 # empty citation set reads as "no citations" while the rules get rewritten anyway.
 #

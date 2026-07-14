@@ -202,17 +202,31 @@ Extract the paths each overlay references and classify each with `classify_path`
 
 ```bash
 for ov in "${OVERLAYS[@]}"; do
-  # EVERY subject, not just the first: a multi-repo overlay (deployment + infra-deployment)
-  # would otherwise have its second repo's paths silently unchecked.
-  while IFS= read -r SUB; do
-    [ -n "$SUB" ] || continue
-    BASE="$ROOT/$SUB"; [ "$SUB" = "." ] && BASE="$ROOT"
-    while read -r p; do
-      [ -n "$p" ] && printf '%s  [%s:%s] %s\n' \
-        "$(classify_path "$p" "$BASE" "$ROOT")" "$(basename "$ov")" "$SUB" "$p"
-    done < <(grep -oE '`[^`]+`' "$ov/SKILL.md" | tr -d '`' \
-             | grep -E '^(~/|\./|[A-Za-z0-9_.-]+/)' | grep -E '\.(md|json|ya?ml|sh|py|tf)$' | sort -u)
-  done < <(subjects_of "$ov" "$ROOT" | cut -f1)
+  # A path belongs to the OVERLAY, not to one of its subjects: a multi-repo overlay documents
+  # paths in both repos and says which is which only in prose. So classify each path against
+  # EVERY subject and keep the best verdict. Checking each subject in turn and printing per
+  # (subject,path) is a cross-product: `deployment/ops_container/...` exists, but checked against
+  # the sibling `infra-deployment` it does not, and gets reported DANGLING. That is a false alarm
+  # on a correct doc reference -- the one outcome Boundaries says is worse than a silent pass.
+  # DANGLING only when the path resolves under NO subject.
+  SUBS=(); while IFS= read -r _s; do [ -n "$_s" ] && SUBS+=("$_s"); done \
+    < <(subjects_of "$ov" "$ROOT" | cut -f1)      # not `mapfile`: bash 4+, macOS ships 3.2
+  while read -r p; do
+    [ -n "$p" ] || continue
+    best=""; where=""
+    for SUB in "${SUBS[@]}"; do
+      BASE="$ROOT/$SUB"; [ "$SUB" = "." ] && BASE="$ROOT"
+      c=$(classify_path "$p" "$BASE" "$ROOT")
+      case "$c" in
+        OK*)       best="$c"; where="$SUB"; break ;;                       # resolved: done
+        SKIP*)     [ -z "$best" ] && { best="$c"; where="$SUB"; } ;;
+        UNVERIF*)  case "$best" in ""|DANGLING*) best="$c"; where="$SUB" ;; esac ;;
+        DANGLING*) [ -z "$best" ] && { best="$c"; where="(none of: ${SUBS[*]})"; } ;;
+      esac
+    done
+    printf '%s  [%s:%s] %s\n' "$best" "$(basename "$ov")" "$where" "$p"
+  done < <(grep -oE '`[^`]+`' "$ov/SKILL.md" | tr -d '`' \
+           | grep -E '^(~/|\./|[A-Za-z0-9_.-]+/)' | grep -E '\.(md|json|ya?ml|sh|py|tf)$' | sort -u)
 done | grep -v '^OK'
 ```
 
