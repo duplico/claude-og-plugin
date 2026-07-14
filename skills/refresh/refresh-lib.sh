@@ -157,12 +157,29 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
       /^## Project Rules/ {inr=1; next} /^## / {if(inr) exit} !inr {next}
       /^ ? ? ?```/ {fence=!fence; next} fence {next}
       /^[0-9]+\. \*\*/ {print $1} /^\*\*Rule [0-9]+/ {print $2}
-    ' "$f" | tr -d '.' | grep -oE '^[0-9]+$' | sort -n)
+    ' "$f" | tr -d '.' | grep -oE '^[0-9]+$')
   [ -n "$nums" ] || { echo "$ov: no legacy rules (already migrated, or none)"; return 0; }
+
+  # DOCUMENT ORDER, not `sort -n`. Rules are a list; the list order is the order they appear in.
+  # Sorting numerically renumbered an out-of-order overlay (14 then 12) DESCENDING -- the first
+  # rule in the file came out PREFIX-2 and the second PREFIX-1.
+  #
+  # And DUPLICATE legacy numbers are fatal, not fixable. Two rules both numbered 12 make the
+  # old->new map ambiguous -- there is no answer to what "See Rule 12" points at. With `sort -n`
+  # (no -u) the map got two entries for key 12, the last won, and BOTH headers were rewritten to
+  # the same ID: two PREFIX-2 rules, no PREFIX-1, written to disk. The count assertion passed,
+  # because it counts lines, not distinct IDs. Refuse instead.
+  local dups
+  dups=$(printf '%s\n' "$nums" | sort | uniq -d | tr '\n' ' ')
+  if [ -n "${dups// /}" ]; then
+    echo "FATAL: $ov has DUPLICATE legacy rule numbers: $dups" >&2
+    echo "       A citation to one of them is ambiguous and cannot be migrated. Fix by hand." >&2
+    return 1
+  fi
 
   # Ordinal position, NOT (n - first + 1): legacy numbering can have GAPS (a deleted rule), and
   # the arithmetic form turned 12,14 into PREFIX-1,PREFIX-3 while announcing "PREFIX-1..PREFIX-2".
-  # Rules are a list, not an address space. Renumber them 1..N as they appear.
+  # Rules are a list, not an address space. Renumber them 1..N in the order they appear.
   local n new i=0 map=""
   for n in $nums; do
     i=$((i + 1))
@@ -276,8 +293,14 @@ migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
   local fence_before fence_after
   fence_before=$(awk '/^ ? ? ?```/{f=!f;next} f' "$f")
   fence_after=$(awk '/^ ? ? ?```/{f=!f;next} f' "$tmp")
-  if [ "$got" -ne "$want" ] || [ "$outside" -ne 0 ] || [ "$fence_before" != "$fence_after" ]; then
-    echo "    ABORT: rewrote $got of $want rules, $outside line(s) OUTSIDE the rules section"
+  # Distinct, not merely as-many: a map collision rewrote two rules to the SAME id and the count
+  # check still passed, because it counts lines.
+  local distinct
+  distinct=$(awk '/^## Project Rules/{f=1;next} /^## /{if(f)exit} f' "$tmp" \
+             | grep -oE "^${prefix}-[0-9]+" | sort -u | wc -l | tr -d ' ')
+  if [ "$got" -ne "$want" ] || [ "$outside" -ne 0 ] || [ "$fence_before" != "$fence_after" ] \
+     || [ "$distinct" -ne "$want" ]; then
+    echo "    ABORT: rewrote $got of $want rules ($distinct distinct), $outside line(s) OUTSIDE the section"
     [ "$fence_before" != "$fence_after" ] && echo "           and it MODIFIED FENCED CONTENT"
     echo "           -- refusing to write a corrupted file"
     rm -f "$tmp"; return 1

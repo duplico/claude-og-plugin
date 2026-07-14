@@ -297,6 +297,29 @@ ind=$(awk '/^ ? ? ?```/{f=!f;next} f' "$G/SKILL.md" | tr -d ' ')
   && ok "migrate: an INDENTED fence is still a fence (content untouched)" \
   || bad "migrate: indented fence was rewritten" "got '$ind'"
 
+# DUPLICATE legacy numbers make the old->new map ambiguous ("See Rule 12" -> which one?). With a
+# non-unique map the last entry won and BOTH headers were rewritten to the same id: two X-2 rules,
+# no X-1, written to disk, with the count assertion passing because it counts lines not ids.
+D="$TMP/dup-orchestrator"; mkdir -p "$D"
+printf 'og:orchestrate\n\n## Subject repos\n\n| Path | Prefix | Slug | Default branch |\n|---|---|---|---|\n| `.` | D | o/d | `main` |\n\n## Project Rules\n\n12. **A.** x\n12. **B.** y\n\n## End\n' > "$D/SKILL.md"
+cp "$D/SKILL.md" "$TMP/dup.before"
+migrate_rules "$D" "$OGDIR" --apply >/dev/null 2>&1
+if cmp -s "$TMP/dup.before" "$D/SKILL.md"; then
+  ok "migrate: DUPLICATE legacy numbers refuse (file untouched)"
+else
+  bad "migrate: duplicate numbers corrupted the file" "$(grep -E '^D-' "$D/SKILL.md")"
+fi
+
+# Rules are a LIST: renumber in DOCUMENT order. Sorting numerically renumbered an out-of-order
+# overlay descending -- the first rule in the file came out PREFIX-2.
+O="$TMP/ooo-orchestrator"; mkdir -p "$O"
+printf 'og:orchestrate\n\n## Subject repos\n\n| Path | Prefix | Slug | Default branch |\n|---|---|---|---|\n| `.` | O | o/o | `main` |\n\n## Project Rules\n\n14. **First.** x\n12. **Second.** See Rule 14.\n\n## End\n' > "$O/SKILL.md"
+migrate_rules "$O" "$OGDIR" --apply >/dev/null 2>&1
+first=$(grep -oE '^O-[0-9]+' "$O/SKILL.md" | head -1)
+[ "$first" = "O-1" ] \
+  && ok "migrate: out-of-order legacy numbering renumbers in DOCUMENT order (first rule -> O-1)" \
+  || bad "migrate: out-of-order renumbered by value, not position" "first rule became $first"
+
 echo
 printf 'pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

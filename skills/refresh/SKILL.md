@@ -53,7 +53,7 @@ og_context || exit 1       # sets ROOT OG OG_ID OG_VER REG; FATALs loudly on any
 | `og_context` | re-derive `$ROOT`/`$OG`/`$OG_ID`; FATAL on non-git, missing jq, missing or ambiguous install |
 | `is_og_shaped <overlay>` | Gate A. Anchored so `Changelog:` does not count as `og:` |
 | `subjects_of <overlay> <root>` | Gate B. Parse `## Subject repos`. rc=0 declared, rc=2 provisional (convention), rc=1 unresolved |
-| `classify_path <path> <subject>` | Phase 6. Returns OK / DANGLING / UNVERIF / SKIP(glob). Walks the full parent chain |
+| `classify_path <path> <subject-dir> <root>` | Phase 6. Returns OK / DANGLING / UNVERIF / SKIP(glob). Walks the full parent chain |
 | `check_freshness <id> <reg>` | Phase 1. SHA comparison. Returns UNVERIF -- never "up to date" -- if the fetch fails or the marketplace is missing |
 
 Every one of these fails **loudly**. None returns an empty result that could be read as "clean".
