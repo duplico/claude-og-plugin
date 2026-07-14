@@ -45,7 +45,9 @@ bad()  { printf '  FAIL %s\n     %s\n' "$1" "$2"; fail=$((fail+1)); }
 # So: look for a call-shaped use INSIDE a fenced code block.
 calls_in_fence() {   # $1 = function name -> prints the number of call-shaped uses in fences
   awk -v fn="$1" '
-    /^```/ { fence = !fence; next }
+    /^```bash/ { fence = 1; next }        # ONLY a bash fence is code. An untagged fence
+    /^```/     { fence = 0; next }        # (the Phase 8 example report) is OUTPUT, not code:
+                                          # counting it let a decoy there fake a wiring pass.
     !fence { next }
     /^[ \t]*#/ { next }    # a comment NAMING a function is not a CALL of it
     $0 ~ ("(^|[^A-Za-z0-9_])" fn "([ \t]|$)") { n++ }
@@ -114,8 +116,8 @@ got=$(classify_path "docs/shared.md" "$TMP/wsroot/subj" "$TMP/wsroot")
 # string is not enough -- it would pass if the string sat in a comment. Assert BOTH that the
 # rc==1 guard is present in a code fence AND that the buggy `subjects_of ... ||` form (which
 # fires on rc=2 and silently skips every single-repo project) is absent.
-guard=$(awk '/^```/{f=!f;next} f' "$SKILL" | grep -c 'rc" -eq 1' || true)
-buggy=$(awk '/^```/{f=!f;next} f' "$SKILL" | grep -cE 'subjects_of [^|]*\|\|' || true)
+guard=$(awk '/^```bash/{f=1;next} /^```/{f=0;next} f' "$SKILL" | grep -c 'rc" -eq 1' || true)
+buggy=$(awk '/^```bash/{f=1;next} /^```/{f=0;next} f' "$SKILL" | grep -cE 'subjects_of [^|]*\|\|' || true)
 if [ "$guard" -ge 1 ] && [ "$buggy" -eq 0 ]; then
   ok "Phase 0 accepts rc=2 (provisional) and has no '|| skip' on subjects_of"
 else
@@ -125,7 +127,7 @@ fi
 # A failed --apply must halt the SKILL, not just the loop. `|| echo` does not stop at all;
 # `break` leaves the loop but lets Phases 4-8 run against a HALF-MIGRATED repo and report on it
 # as if it were consistent. Both spellings have shipped in this file already. Assert the exit.
-apply=$(awk '/^```/{f=!f;next} f' "$SKILL" | grep -A6 'migrate_rules .* --apply' || true)
+apply=$(awk '/^```bash/{f=1;next} /^```/{f=0;next} f' "$SKILL" | grep -A6 'migrate_rules .* --apply' || true)
 if grep -q 'exit 1' <<<"$apply"; then
   ok "Phase 3 --apply failure EXITS (does not fall through to later phases)"
 else
@@ -244,6 +246,40 @@ N="$TMP/noprefix-orchestrator"; mkdir -p "$N"; printf '## Project Rules\n12. **x
 fat=$(migrate_rules "$N" "$OGDIR" --dry 2>/dev/null || true)
 grep -q FATAL <<<"$fat" \
   && ok "migrate: FATALs when no Prefix declared" || bad "migrate: no prefix" "must refuse, not invent one"
+
+# --- 4. Phase 6, EXECUTED ---------------------------------------------------------------------
+# Three real bugs have shipped in Phase 6's aggregation (head -1; the path x subject cross-product;
+# UNVERIF burying a proven DANGLING). None was visible to a harness that only greps SKILL.md.
+# So run it. VERBATIM from the fence -- a hand-copied version would test the copy and pass while
+# the real phase stayed broken, which is the whole failure mode this file exists to prevent.
+p6=$(awk '/^```bash/ {f=1; blk=""; next}
+           /^```/    {if (f && blk ~ /classify_path/) printf "%s", blk; f=0; next}
+           f         {blk = blk $0 "\n"}' "$SKILL")
+if [ -z "$p6" ]; then
+  bad "could not extract Phase 6 from SKILL.md" "the end-to-end checks below would be vacuous"
+else
+  R="$TMP/p6/root"
+  mkdir -p "$R/.claude/skills/multi-orchestrator" "$R/suba/scripts"      # suba present, subb NOT
+  printf 'og:orchestrate\n\n## Subject repos\n\n| Path | Prefix | Slug | Default branch |\n|---|---|---|---|\n| `suba` | A | o/suba | `main` |\n| `subb` | A | o/subb | `main` |\n\nCites `scripts/gone.sh` and `scripts/here.sh`.\n' \
+    > "$R/.claude/skills/multi-orchestrator/SKILL.md"
+  : > "$R/suba/scripts/here.sh"                    # here.sh exists in suba; gone.sh exists nowhere
+  # shellcheck disable=SC2034  # ROOT/OVERLAYS are read by the eval'd Phase 6 body
+  run_p6() { ( . "$LIB"; ROOT="$R"; OVERLAYS=("$R/.claude/skills/multi-orchestrator"); eval "$p6" ); }
+
+  out=$(run_p6)
+  grep -q 'here.sh' <<<"$out" \
+    && bad "Phase 6: false DANGLING on a path that EXISTS in a sibling subject" "$out" \
+    || ok "Phase 6: a path present in ONE subject is not DANGLING against the others"
+  grep -q 'DANGLING(partial).*absent in: suba.*NOT CHECKED OUT: subb' <<<"$out" \
+    && ok "Phase 6: proven-absent + unseen subject -> DANGLING(partial), not bare UNVERIF" \
+    || bad "Phase 6: UNVERIF from an unchecked subject buried a proven DANGLING" "$out"
+
+  mkdir -p "$R/subb/scripts"; : > "$R/subb/scripts/here.sh"       # now BOTH subjects are visible
+  out=$(run_p6)
+  grep -qE '^DANGLING  .*none of: suba subb.*gone\.sh' <<<"$out" \
+    && ok "Phase 6: absent from EVERY visible subject hardens to a plain DANGLING" \
+    || bad "Phase 6: should harden to DANGLING once every subject is checked out" "$out"
+fi
 
 echo
 printf 'pass=%s fail=%s\n' "$pass" "$fail"

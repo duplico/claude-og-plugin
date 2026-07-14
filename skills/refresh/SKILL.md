@@ -225,17 +225,28 @@ for ov in "${OVERLAYS[@]}"; do
     < <(subjects_of "$ov" "$ROOT" | cut -f1)      # not `mapfile`: bash 4+, macOS ships 3.2
   while read -r p; do
     [ -n "$p" ] || continue
-    best=""; where=""
+    best=""; where=""; missing=""; unseen=""
     for SUB in "${SUBS[@]}"; do
       BASE="$ROOT/$SUB"; [ "$SUB" = "." ] && BASE="$ROOT"
       c=$(classify_path "$p" "$BASE" "$ROOT")
       case "$c" in
-        OK*)       best="$c"; where="$SUB"; break ;;                       # resolved: done
-        SKIP*)     [ -z "$best" ] && { best="$c"; where="$SUB"; } ;;
-        UNVERIF*)  case "$best" in ""|DANGLING*) best="$c"; where="$SUB" ;; esac ;;
-        DANGLING*) [ -z "$best" ] && { best="$c"; where="(none of: ${SUBS[*]})"; } ;;
+        OK*)       best="$c"; where="$SUB"; break ;;                # resolved somewhere: done
+        SKIP*)     [ -z "$best" ] && { best="$c"; where="$SUB"; } ;;   # a glob is not a file
+        DANGLING*) missing="$missing $SUB" ;;                        # subject SEEN, file absent
+        UNVERIF*)  unseen="$unseen $SUB" ;;                          # subject not checked out
       esac
     done
+    # Only decide once every subject has voted. Letting UNVERIF beat DANGLING as we go would let
+    # a subject that is merely NOT CHECKED OUT bury a DANGLING that another subject *proved* --
+    # and UNVERIF means "the doc is probably right, you just cannot see it", which would then be
+    # a lie. Letting DANGLING win outright is the opposite error: the file may well exist in the
+    # subject we could not see. When both happen, say both.
+    if [ -z "$best" ]; then
+      if   [ -z "$unseen" ];  then best="DANGLING";         where="(none of:$missing)"
+      elif [ -z "$missing" ]; then best="UNVERIF";          where="(not checked out:$unseen)"
+      else                         best="DANGLING(partial)"; where="(absent in:$missing; NOT CHECKED OUT:$unseen)"
+      fi
+    fi
     printf '%s  [%s:%s] %s\n' "$best" "$(basename "$ov")" "$where" "$p"
   done < <(grep -oE '`[^`]+`' "$ov/SKILL.md" | tr -d '`' \
            | grep -E '^(~/|\./|[A-Za-z0-9_.-]+/)' | grep -E '\.(md|json|ya?ml|sh|py|tf)$' | sort -u)
@@ -243,6 +254,8 @@ done | grep -v '^OK'
 ```
 
 `classify_path` returns **SKIP** for globs (a routing-table pattern is not a file), **UNVERIF** when the subject repo is not present at all (a worktree or partial clone -- the doc is probably right and you simply cannot see it), and **DANGLING** only for a path genuinely missing from a subject you *can* see.
+
+A multi-subject overlay can produce both at once, so Phase 6 also emits **DANGLING(partial)**: absent from a subject you *could* see, while another subject was not checked out. It is neither -- calling it UNVERIF buries a finding you actually proved, and calling it DANGLING invites deleting a doc whose file may be sitting in the repo you did not clone. Treat it as "check out the rest, then re-run".
 
 Label findings by overlay. `basename` alone collapses six overlays to six identical `SKILL.md`s and makes the report unactionable.
 
@@ -262,7 +275,7 @@ Validate read-only: each overlay's frontmatter `name:` matches its directory, an
 
 Report a table: category, what is wrong, the proposed fix, and **for every fact, the command that disproves the claim**. Keep unverifiable items in their own bucket, visibly separate from false ones. State how many overlays you checked, and name anything you skipped.
 
-```
+```text
 DRIFT (repo: swccdc-workspace, 6 overlays checked, 0 skipped)
 
   plugin   og 0.1.5 installed, 0.1.7 available              -> update + restart
