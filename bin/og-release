@@ -2,19 +2,19 @@
 # og-release -- bump the plugin version, and catch the drift that makes updates silently no-op.
 #
 #   og-release check              report whether the version is stale vs the last release tag
-#   og-release bump <level>       bump plugin.json (major|minor|patch or an explicit X.Y.Z)
+#   og-release bump <level>       bump .claude-plugin/plugin.json (major|minor|patch|X.Y.Z)
 #
 # WHY THIS EXISTS
-#   `claude plugin update` keys off the VERSION STRING in plugin.json, not the commit. If a
-#   release lands without bumping it, `update` reports "already at the latest version" and
-#   pulls NOTHING. The changes are merged, tagged or not, and simply undeliverable.
+#   `claude plugin update` keys off the VERSION STRING in .claude-plugin/plugin.json, not the
+#   commit. If a release lands without bumping it, `update` reports "already at the latest
+#   version" and pulls NOTHING. The changes are merged, tagged or not, and undeliverable.
 #   That happened: v0.1.5 shipped, then a new universal rule and a new tool merged on top of
 #   it, and every user's `claude plugin update` said "up to date" while fetching neither.
 #
 # Release flow (the version bump must go through a PR; main is protected):
-#   1. og-release bump minor      # edits plugin.json
+#   1. og-release bump minor      # edits .claude-plugin/plugin.json
 #   2. commit, PR, merge
-#   3. claude plugin tag --push   # tags main as og--v<version>, validating plugin.json
+#   3. claude plugin tag --push   # tags main as og--v<version>, validating plugin.json agrees
 set -euo pipefail
 
 ROOT=$(git rev-parse --show-toplevel)
@@ -44,7 +44,7 @@ find_last_tag() {
 cmd_check() {
   find_last_tag || true
   local lt="$LT"
-  echo "plugin.json: v$cur"
+  echo ".claude-plugin/plugin.json: v$cur"
   if [ -z "$lt" ]; then
     echo "no release tag found (looked for ${name}--v* and legacy v*)"
   else

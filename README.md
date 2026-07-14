@@ -38,7 +38,7 @@ claude --plugin-dir ~/og   # loads this plugin into the session
 
 ## Releasing
 
-**`claude plugin update` compares the version string in `plugin.json`, not the commit.** If a
+**`claude plugin update` compares the version string in `.claude-plugin/plugin.json`, not the commit.** If a
 release lands without bumping it, `update` reports *"already at the latest version"* and pulls
 **nothing** -- the changes are merged and undeliverable.
 
@@ -49,7 +49,7 @@ of it, and every `claude plugin update` answered "up to date" while fetching nei
 og-release check          # are there commits since the last release tag with no version bump?
 og-release bump minor     # major | minor | patch | X.Y.Z
 # commit + PR + merge (main is protected), then:
-claude plugin tag --push  # tags main as og--v<version>, validating plugin.json agrees
+claude plugin tag --push  # tags main as og--v<version>, validating .claude-plugin/plugin.json agrees
 ```
 
 Bump **minor** for a new universal rule, a new agent, or a new shipped tool -- anything that
