@@ -6,7 +6,7 @@ argument-hint: "[--fix]"
 allowed-tools: Bash
 ---
 
-# /og:sync — apply plugin updates to this project
+# /og:sync -- apply plugin updates to this project
 
 Run the sync script and present the output verbatim (already formatted).
 Default mode is **report-only**. Append `--fix` to apply changes in place.
@@ -25,7 +25,7 @@ In `.claude/skills/*-orchestrator/SKILL.md` and `.claude/agents/*.md`:
    - Markdown table cells (`| name |`)
    - Inline backticks (`` `name` ``)
 
-2. **Missing shared-utility rows** in the overlay's agent table — `og:editor`,
+2. **Missing shared-utility rows** in the overlay's agent table -- `og:editor`,
    `og:web-doc-searcher`, `og:just-expert`, `og:closed-loop-runner`. So when the
    plugin gains a new shared agent, sync makes sure every project's overlay
    surfaces it.
@@ -38,7 +38,7 @@ In `.claude/skills/*-orchestrator/SKILL.md` and `.claude/agents/*.md`:
 
 ## What it doesn't do
 
-- Does NOT rewrite project-specific agent prompts (`gqc-developer`, etc.) — only
+- Does NOT rewrite project-specific agent prompts (`gqc-developer`, etc.) -- only
   fixes their plugin-name references.
 - Does NOT renegotiate `.claude/settings.json` env keys.
-- Does NOT remove rows for plugin agents you've intentionally hidden — manual.
+- Does NOT remove rows for plugin agents you've intentionally hidden -- manual.

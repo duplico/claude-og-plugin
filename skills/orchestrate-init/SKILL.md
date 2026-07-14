@@ -8,14 +8,14 @@ allowed-tools: Read, Glob, Grep, Bash, Edit, Write, Task, WebFetch
 
 # Orchestrate-Init: bootstrap this repo's Claude Code setup
 
-Your job is to take this repository from "no AI tooling" to "a useful, familiar orchestration setup" — without clobbering anything already there. Work through the phases in order. Be interactive at the decision points; otherwise just do the work.
+Your job is to take this repository from "no AI tooling" to "a useful, familiar orchestration setup" -- without clobbering anything already there. Work through the phases in order. Be interactive at the decision points; otherwise just do the work.
 
 `--minimal` = CLAUDE.md + project overlay + settings only.
 `--full` (default) = also offer domain-specialist agents and a format hook.
 
 ---
 
-## Phase 1 — Detect what already exists (never clobber)
+## Phase 1 -- Detect what already exists (never clobber)
 
 ```bash
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); echo "Root: $ROOT"
@@ -29,7 +29,7 @@ echo "--- existing project skills ---"; ls -d "$ROOT"/.claude/skills/*/ 2>/dev/n
 
 For anything that EXISTS, you will *augment* (or leave alone), not overwrite. Tell the user what you found.
 
-## Phase 2 — Investigate the repo
+## Phase 2 -- Investigate the repo
 
 Detect the stack, build/test/lint commands, CI, and layout. For a large/unfamiliar repo, delegate this to an `Explore` agent; for a small one, inspect directly.
 
@@ -47,18 +47,18 @@ Determine and write down (you'll use these in the generated files):
 - **GitHub slug** (if the remote is GitHub)
 - **Multi-repo?** (submodules, repos.txt, sibling repos) and any dependency ordering you can infer
 
-## Phase 3 — Ask the user (use AskUserQuestion)
+## Phase 3 -- Ask the user (use AskUserQuestion)
 
 Confirm your findings and gather decisions in ONE AskUserQuestion call (batch the questions):
 
-1. **Stack confirmation** — present what you detected; let them correct.
-2. **Orchestrator mode default** — friendly (implement-when-sensible) or strict (delegate-only). Writes `OG_ORCHESTRATOR_MODE`.
-3. **Worktree enforcement** — should subagents be forced to use worktrees? (Recommended for shared repos with PR workflow; off for solo/small.) Writes `OG_REQUIRE_WORKTREE`.
-4. **Domain agents** (only if `--full`) — offer 1-3 stack-specific agents to generate (e.g., a `<lang>-developer` specializing the generic developer, a `terraform-expert`, a `frontend-developer`). Let them pick which, or none.
+1. **Stack confirmation** -- present what you detected; let them correct.
+2. **Orchestrator mode default** -- friendly (implement-when-sensible) or strict (delegate-only). Writes `OG_ORCHESTRATOR_MODE`.
+3. **Worktree enforcement** -- should subagents be forced to use worktrees? (Recommended for shared repos with PR workflow; off for solo/small.) Writes `OG_REQUIRE_WORKTREE`.
+4. **Domain agents** (only if `--full`) -- offer 1-3 stack-specific agents to generate (e.g., a `<lang>-developer` specializing the generic developer, a `terraform-expert`, a `frontend-developer`). Let them pick which, or none.
 
-Don't ask about things you can detect. Don't ask permission to create the basics — that's why they ran init.
+Don't ask about things you can detect. Don't ask permission to create the basics -- that's why they ran init.
 
-## Phase 4 — Generate the setup
+## Phase 4 -- Generate the setup
 
 Create only what's missing. Use the templates below.
 
@@ -116,11 +116,11 @@ its universal-orchestrator-rules), then apply this project's specifics below.
 - Default branch: <branch>
 ```
 
-### 4b. `CLAUDE.md` (root) — only if absent
+### 4b. `CLAUDE.md` (root) -- only if absent
 
 If absent, run the built-in `/init` skill to generate a strong first draft, then trim it and add: the build/test/lint commands, the "changes go through PRs" workflow, and an AI-disclosure note. If `CLAUDE.md` already exists, leave it and instead add a short pointer to the orchestrator overlay if one isn't there.
 
-### 4c. `.claude/settings.json` — merge, don't overwrite
+### 4c. `.claude/settings.json` -- merge, don't overwrite
 
 ```json
 {
@@ -144,14 +144,14 @@ Only set `OG_REQUIRE_WORKTREE` if the user opted in. If a `.claude/settings.json
 
 If `--full` and a formatter was detected, add a `PostToolUse` Edit|Write hook that runs the project formatter (e.g., `ruff format`, `prettier -w`, `gofmt -w`, `cargo fmt`). Reference a script in `.claude/hooks/` you create, or an inline command.
 
-### 4d. `.claude/settings.local.json` — template, gitignored
+### 4d. `.claude/settings.local.json` -- template, gitignored
 
 Create a minimal stub (machine-specific overrides) only if absent:
 ```json
 { "permissions": { "allow": [] } }
 ```
 
-### 4e. `.gitignore` — append if missing
+### 4e. `.gitignore` -- append if missing
 
 Ensure these are ignored (append, don't duplicate):
 ```
@@ -166,7 +166,7 @@ Base each on the plugin's `og:orchestrator-developer` (or `og:orchestrator-revie
 
 **Namespacing reminder when wiring agent references in generated files:** plugin agents are registered as `og:<name>` (the prefix is required when used as `subagent_type` for the `Task` tool, or when listed in `skills:` frontmatter). Project agents in `.claude/agents/` are NOT namespaced and are referenced by bare name. So generated agent tables, dispatch instructions, and skills-preload lists must use `og:` only for plugin-shipped components.
 
-## Phase 5 — Verify & hand off
+## Phase 5 -- Verify & hand off
 
 1. Validate YAML frontmatter on every file you wrote (a missing `tools:`/`name:` makes an agent fail silently).
 2. Print a summary: created vs skipped (with reasons), and the new commands available (`/<project>-orchestrator`, `/og:orchestrate`).
@@ -176,5 +176,5 @@ Base each on the plugin's `og:orchestrator-developer` (or `og:orchestrator-revie
 ## Guardrails
 
 - Never overwrite an existing file without showing the user the diff and getting an OK.
-- Keep generated files lean — a tight overlay beats a 400-line prompt nobody reads.
+- Keep generated files lean -- a tight overlay beats a 400-line prompt nobody reads.
 - Everything you generate is committed to the repo (team-shared) except `settings.local.json`. Don't put machine-specific paths or secrets in the committed files.
