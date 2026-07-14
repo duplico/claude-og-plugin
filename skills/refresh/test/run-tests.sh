@@ -371,6 +371,20 @@ t_skip 'ansible/roles/YYYY/'               'SKIP placeholder segment'
 t_skip 'terraform/**/*.tf'                 'SKIP glob'
 t_skip '.github/CODEOWNERS'                'DANGLING'   # a real all-caps NAME is not a placeholder
 
+# The og rules doc exists in TWO formats: pre-namespacing (`### 11.`) and post (`### OG-11.`).
+# migrate_rules reads the OG range from it to classify citations, and an INSTALLED plugin can be
+# either -- a stale install still has the old form, which is exactly what the live testbed had.
+# If the range cannot be read, migrate_rules FATALs (correctly), so a parser that handles only
+# one format would break every migration the moment the plugin updates. Assert both.
+for fmt in old new; do
+  F="$TMP/ogfmt-$fmt/docs"; mkdir -p "$F"
+  if [ "$fmt" = old ]; then printf '### 0. A\n### 11. Use the Project Tooling\n' > "$F/universal-orchestrator-rules.md"
+  else                      printf '### OG-0. A\n### OG-11. Use the Project Tooling\n' > "$F/universal-orchestrator-rules.md"; fi
+  got=$(grep -oE '^### (OG-)?[0-9]+\.' "$F/universal-orchestrator-rules.md" | grep -oE '[0-9]+' | sort -n | tail -1)
+  [ "$got" = "11" ] && ok "og rule range parses from the $fmt rules-doc format (ogmax=11)" \
+    || bad "og rule range unreadable in $fmt format" "got '$got' -- migrate_rules would FATAL on every overlay"
+done
+
 echo
 printf 'pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -193,7 +193,16 @@ Grep for each; do not eyeball.
 
 **The overlay is the primary instruction an agent follows. If it lies, the agent acts on the lie.** Nothing validates it, so it rots invisibly -- until an agent runs a command that does not exist.
 
-Delegate this; it is read-heavy. One agent per overlay, in parallel. Record every claim as **verified / FALSE / unverifiable**, and never collapse the third into the second.
+Delegate this; it is read-heavy. One agent per overlay, in parallel. Record every claim as **verified / FALSE / VIOLATED / unverifiable**, and never collapse the last into FALSE.
+
+**Sort the claim before you judge it.** An overlay says two different kinds of thing, and they fail differently:
+
+- A **descriptive** claim ("the CLI is built on Textual", "the default branch is `main`") can be *FALSE*.
+- A **normative** rule ("never use `powerdns_record`; always `dns_a_record_set`") cannot be false -- it is a policy. What it can be is **VIOLATED**, by code that does the forbidden thing.
+
+Marking a normative rule FALSE because the code disobeys it is backwards, and the remedy it implies -- "correct the overlay" -- would delete the rule instead of fixing the code. So: for every "never X" / "always Y" rule, grep the **subject repo** for its counterexample and report **VIOLATED** with the offending files. That is a finding about the *repo*, not the overlay, and it is often the most valuable thing this phase produces.
+
+(Found by running this. A workspace rule said `powerdns_record` was permitted only for NS/glue in one file; the fact-check reported the rule FALSE. The rule was right -- five current Terraform files were breaking it.)
 
 | Claim | How to falsify it |
 |---|---|
