@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2015,SC1090,SC2016,SC2034
+#   SC2015 -- the `cond && ok "..." || bad "..."` assertion idiom is safe here: ok() is an echo
+#             plus a counter increment and cannot fail, so bad() never runs on a passing check.
+#   SC1090 -- $LIB is resolved at runtime relative to this script; shellcheck cannot follow it.
+#   SC2016 -- the single-quoted printf strings contain backticks ON PURPOSE (they are markdown
+#             fixtures); expansion is exactly what we do not want.
+#   SC2034 -- OG looks unused but is read by universal_upper_bound() via dynamic scope.
 # run-tests.sh -- guard against the one bug this skill keeps having.
 #
 # THREE adversarial execution rounds all found the same shape:
@@ -21,10 +28,6 @@
 # Live end-to-end runs are done by hand against throwaway worktrees.
 
 set -uo pipefail
-# SC2015: the `cond && ok "..." || bad "..."` assertion idiom is safe here -- ok() is an echo
-#         plus a counter increment and cannot fail, so bad() never runs on a passing check.
-# SC1090: $LIB is resolved at runtime relative to this script; shellcheck cannot follow it.
-# shellcheck disable=SC2015,SC1090
 command -v jq >/dev/null || { echo "FATAL: jq is required to run these tests" >&2; exit 1; }
 HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 SKILL="$HERE/../SKILL.md"
