@@ -397,6 +397,7 @@ done
 RO="$TMP/ro-orchestrator"; mkdir -p "$RO"
 printf 'og:orchestrate\n\n## Subject repos\n\n| Path | Prefix | Slug | Default branch |\n|---|---|---|---|\n| `.` | RO | o/ro | `main` |\n\n## Project Rules\n\n12. **A.** x\n\n## End\n' > "$RO/SKILL.md"
 cp "$RO/SKILL.md" "$TMP/ro.before"
+# shellcheck disable=SC2030,SC2031  # the subshell is deliberate: the guard must not leak
 ( export OG_REFRESH_REPORT_ONLY=1; migrate_rules "$RO" "$OGDIR" --apply >/dev/null 2>&1 )
 if cmp -s "$TMP/ro.before" "$RO/SKILL.md"; then
   ok "--report-only REFUSES --apply (guard, not prose)"
@@ -510,6 +511,56 @@ migrate_rules "$OS2" "$OGDIR" --apply >/dev/null 2>&1
 grep -q '^O2-1\. \*\*A\.\*\*' "$OS2/SKILL.md" \
   && ok "outside-guard: a header-shaped line ALREADY outside the section does not abort" \
   || bad "outside-guard false abort on pre-existing content" "it aborts on a line migration never touched"
+
+# Every ```bash block in SKILL.md is code an agent will RUN. Nothing checked that they parse -- and
+# one did not: a literal three-backtick sequence inside an awk regex CLOSED the fence it was
+# written in, shipping a Phase 3 block that was broken markdown AND invalid bash. It survived
+# every other check in this file. Parse them all.
+BTQ=$(printf '\140\140\140')
+nblocks=0; nbad=0
+while IFS= read -r blk; do
+  nblocks=$((nblocks + 1))
+  bash -n "$blk" 2>/dev/null || { nbad=$((nbad + 1)); echo "      unparseable: $(head -1 "$blk")"; }
+done < <(awk -v bt="$BTQ" -v tmp="$TMP" '
+    $0 == bt "bash" { inb=1; n++; f=tmp "/blk" n ".sh"; print "" > f; next }
+    inb && $0 == bt { inb=0; print f; next }
+    inb { print $0 >> f }
+  ' "$SKILL")
+if [ "$nblocks" -eq 0 ]; then
+  bad "extracted 0 bash blocks from SKILL.md" "this check is vacuous -- the extractor is broken"
+elif [ "$nbad" -eq 0 ]; then
+  ok "all $nblocks bash block(s) in SKILL.md parse (bash -n)"
+else
+  bad "$nbad of $nblocks bash blocks in SKILL.md do not parse" "an agent would run these"
+fi
+
+# The skill knew the prefix and made the user hand-edit six tables. add_prefix_column proposes and
+# writes it on confirmation -- so it must obey the same gates as every other change.
+AP="$TMP/ap-orchestrator"; mkdir -p "$AP"
+printf 'og:orchestrate\n\n## Subject repos\n\n| Path | Slug | Default branch |\n|---|---|---|\n| `a` | o/a | `main` |\n| `b` | o/b | `main` |\n\n## Project Rules\n\n12. **A.** x\n' > "$AP/SKILL.md"
+cp "$AP/SKILL.md" "$TMP/ap.before"
+
+# shellcheck disable=SC2030,SC2031  # the subshell is deliberate: the guard must not leak
+( export OG_REFRESH_REPORT_ONLY=1; add_prefix_column "$AP" AP >/dev/null 2>&1 )
+cmp -s "$TMP/ap.before" "$AP/SKILL.md" \
+  && ok "add_prefix_column REFUSES under --report-only" \
+  || bad "add_prefix_column wrote under --report-only" "the contract is that it changes NOTHING"
+
+add_prefix_column "$AP" 'bad!' >/dev/null 2>&1
+cmp -s "$TMP/ap.before" "$AP/SKILL.md" \
+  && ok "add_prefix_column rejects a malformed prefix" \
+  || bad "add_prefix_column accepted 'bad!'" "prefix must be [A-Z][A-Z0-9]*"
+
+add_prefix_column "$AP" AP >/dev/null 2>&1
+[ "$(rule_prefix_of "$AP")" = "AP" ] \
+  && ok "add_prefix_column: the prefix READS BACK (rule_prefix_of agrees)" \
+  || bad "add_prefix_column wrote a column rule_prefix_of cannot read" "$(grep -A4 'Subject repos' "$AP/SKILL.md")"
+rows=$(awk '/^## Subject repos/{s=1;next} /^## /{s=0} s && /^\|/' "$AP/SKILL.md" | wc -l | tr -d ' ')
+[ "$rows" -eq 4 ] \
+  && ok "add_prefix_column: every subject row got the column (header + sep + 2 subjects)" \
+  || bad "add_prefix_column changed the table shape" "expected 4 rows, got $rows"
+add_prefix_column "$AP" AP 2>&1 | grep -q 'already has a Prefix' \
+  && ok "add_prefix_column is idempotent" || bad "add_prefix_column not idempotent" "it would double the column"
 
 echo
 printf 'pass=%s fail=%s\n' "$pass" "$fail"
