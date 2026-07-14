@@ -25,13 +25,18 @@ repo: <owner>/<repo>
 issue: 304                       # OR pr: 42 (one or the other)
 round_limit: 4
 poll_interval: 120               # seconds between polls (default 120)
+ci_timeout: 1800                 # seconds to wait for CI before escalating (default 1800 = 30m)
+review_timeout: 7200             # seconds to wait for reviews before escalating (default 7200 = 2h)
+mode: unattended                 # attended | unattended (default unattended)
 reviewer_agent: og:orchestrator-reviewer   # or a project-specific reviewer
 developer_agent: og:orchestrator-developer # or a project-specific developer
 worktree_path: <path to the task worktree>
 session_path: <repo>/.ai/scratch/closed-loop/abc-123-def
 ```
 
-Defaults if unspecified: `reviewer_agent=og:orchestrator-reviewer`, `developer_agent=og:orchestrator-developer`, `round_limit=4`, `poll_interval=120`.
+Defaults if unspecified: `reviewer_agent=og:orchestrator-reviewer`, `developer_agent=og:orchestrator-developer`, `round_limit=4`, `poll_interval=120`, `ci_timeout=1800`, `review_timeout=7200`, `mode=unattended`.
+
+**Every wait is bounded.** A runner that sleeps forever is worse than one that stops: it burns a session, reports nothing, and looks like progress. Track elapsed time in each polling phase and honor the timeouts below.
 
 **Important**: `session_path` holds minimal local state only (config.json with UUID + round number). All detailed round history is posted to GitHub. GitHub is the source of truth.
 
@@ -46,15 +51,37 @@ If config has `issue` instead of `pr`:
 2. Extract the PR number from the developer's summary.
 3. Update session state — now tracking a PR.
 
-### Phase 2: Wait for CI
+### Phase 2: Wait for CI (bounded)
 
-Poll until CI completes:
+**First, determine whether CI exists at all.** `closed-loop-status` reports `ci_state` from GitHub's `statusCheckRollup`, which is **`null` -> `"UNKNOWN"` when the repo has no CI configured**. `UNKNOWN` is neither "passed" nor "failed", so a loop that only branches on those two **spins forever** on any repo without CI. That is not hypothetical -- plenty of repos have no checks.
 
 ```bash
+START=$SECONDS
 while true; do
-  closed-loop-status {repo} {pr}
-  # CI failed  -> delegate fix to developer_agent, keep polling
-  # CI passed  -> proceed to Phase 3
+  STATUS=$(closed-loop-status {repo} {pr})
+  CI=$(echo "$STATUS" | jq -r '.ci_state // "UNKNOWN"')
+
+  case "$CI" in
+    SUCCESS)
+      break ;;                                  # proceed to Phase 3
+    UNKNOWN|"")
+      # No CI is configured on this repo. There is nothing to wait for.
+      closed-loop-comment {repo} {pr} "No CI configured on this repo; skipping the CI wait." \
+        --session {session_uuid} --model "{your model}"
+      break ;;
+    FAILURE|ERROR)
+      # Delegate the fix to developer_agent, then keep polling.
+      ;;
+    *)
+      : ;;                                      # PENDING / EXPECTED -> keep waiting
+  esac
+
+  if (( SECONDS - START > {ci_timeout} )); then
+    closed-loop-escalate {repo} {pr} ci_timeout \
+      "CI did not complete within {ci_timeout}s (last state: $CI)." \
+      --session {session_uuid} --round {N}
+    exit 0                                      # a stuck CI IS a blocker -- stop, do not spin
+  fi
   sleep {poll_interval}
 done
 ```
@@ -65,11 +92,43 @@ closed-loop-comment {repo} {pr} "CI passed. Waiting for reviews." \
   --session {session_uuid} --model "{your model}"
 ```
 
-### Phase 3: Wait for Reviews
+### Phase 3: Wait for Reviews (bounded)
 
-Poll `closed-loop-status` until unresolved review threads appear, then proceed.
+Poll `closed-loop-status` until unresolved review threads appear.
 
-**Copilot (opt-in only):** if the user asked to bring GitHub Copilot into the loop, load the `og:copilot-reviews` skill. Copilot does **not** auto-review on push, so you must `og-copilot-review <repo> <pr>` to request it, then poll `og-copilot-comments <repo> <pr> --since-head` (both endpoints, timestamp-gated) — a summary-only Copilot review creates no `reviewThreads`, so `closed-loop-status` alone can miss it. Re-request each round after pushing fixes. Never trigger or wait on Copilot unless the user asked; bound your polling and report rather than looping forever.
+**Waiting on a human reviewer is not a failure** -- but an agent sleeping for hours is pure waste. So bound it, nudge once, and then reach the *correct terminal state* rather than spinning:
+
+```bash
+START=$SECONDS; NUDGED=0
+while true; do
+  THREADS=$(closed-loop-status {repo} {pr} | jq -r '.unresolved_review_threads // 0')
+  (( THREADS > 0 )) && break                    # reviews are in -> Phase 4
+
+  ELAPSED=$(( SECONDS - START ))
+  if (( ELAPSED > {review_timeout} )); then
+    if (( NUDGED == 0 )); then
+      closed-loop-comment {repo} {pr} "Still waiting for review. The PR is ready and CI is green." \
+        --session {session_uuid} --model "{your model}"
+      NUDGED=1
+    fi
+    if [[ "{mode}" == "unattended" ]]; then
+      closed-loop-escalate {repo} {pr} awaiting_review \
+        "No reviews after ${ELAPSED}s. Not a failure -- the PR is waiting on a human." \
+        --session {session_uuid} --round {N}
+      exit 0        # AWAITING_HUMAN is the CORRECT state here. Exit; resume later from GitHub.
+    fi
+    # attended: a human is watching, so keep polling after the nudge.
+  fi
+  sleep {poll_interval}
+done
+```
+
+Two things this deliberately preserves:
+
+- **Do not escalate as an error just for waiting.** `awaiting_review` is a *state*, not a fault. The PR is fine; a human simply has not looked yet.
+- **Do not spin.** In unattended mode, exit into `AWAITING_HUMAN` and let the session resume from GitHub when the human responds (see Resumption). Sleeping for six hours produces nothing a resumable exit does not.
+
+**Copilot (opt-in only):** if the user asked to bring GitHub Copilot into the loop, load the `og:copilot-reviews` skill. Copilot does **not** auto-review on push, so you must `og-copilot-review <repo> <pr>` to request it, then poll `og-copilot-comments <repo> <pr> --since-head` (both endpoints, timestamp-gated) -- a summary-only Copilot review creates no `reviewThreads`, so `closed-loop-status` alone can miss it. Re-request each round after pushing fixes. Never trigger or wait on Copilot unless the user asked; the same `review_timeout` bound applies.
 
 ### Phase 4: Review-Fix Loop
 
