@@ -107,7 +107,7 @@ its universal-orchestrator-rules), then apply this project's specifics below.
 
 | Path | Prefix | Slug | Default branch |
 |---|---|---|---|
-| `.` | <PREFIX> | <owner/repo> | <branch> |
+| `.` | `<PREFIX>` | `<owner/repo>` | `<branch>` |
 
 ## Repository layout
 <key directories and what lives in them>
@@ -119,8 +119,12 @@ its universal-orchestrator-rules), then apply this project's specifics below.
 <!-- Rules are namespaced by the repo that OWNS them: <PREFIX>-1, <PREFIX>-2, ... starting at 1.
      Do NOT restate an OG-* rule -- the plugin already guarantees it.
      Do NOT restate another repo's rule -- CITE it ("see DEPLOY-3"). -->
-<PREFIX>-1. <something an agent could not infer from the repo>
-<PREFIX>-2. <...>
+`<PREFIX>`-1. <something an agent could not infer from the repo>
+`<PREFIX>`-2. <...>
+
+<!-- Replace `<PREFIX>` with the repo's real uppercase slug (DEPLOY-1., SCORING-1., ...).
+     Left literal, a bare <PREFIX> is parsed as an HTML tag by GitHub-flavored Markdown and
+     renders as nothing -- the placeholder silently disappears. -->
 
 ## GitHub
 - Slug: <owner/repo>
