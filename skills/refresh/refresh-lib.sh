@@ -10,7 +10,7 @@
 # Every function here fails LOUDLY. Nothing returns an empty result that could be mistaken
 # for "clean" -- that is the single failure mode this skill exists to avoid.
 
-og_context() {   # sets ROOT OG OG_ID OG_VER REG ; exits on any failure
+og_context() {   # sets ROOT OG OG_ID OG_VER REG ; RETURNS non-zero on any failure; callers must handle it (`og_context || exit 1`)
   set -u
   ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "FATAL: not in a git repo" >&2; return 1; }
   REG="$HOME/.claude/plugins/installed_plugins.json"
@@ -40,7 +40,8 @@ subjects_of() {   # $1 = overlay dir, $2 = ROOT ; prints path<TAB>PREFIX<TAB>slu
          | grep -E '^\|' | grep -viE '^\| *Path' | grep -vE '^\|[ :-]*\|[ :-]*\|' \
          | sed 's/^| *//; s/ *|$//; s/ *| */\t/g' | tr -d '`')
   if [ -n "$rows" ]; then printf '%s\n' "$rows"; return 0; fi
-  name=$(basename "$1" -orchestrator)
+  name=$(basename -- "$1"); name=${name%-orchestrator}   # not `basename X -orchestrator`: a suffix
+                                                       # beginning with - can parse as an option
   if [ -d "$root/$name" ]; then printf '%s\t?\t?\t?\n' "$name"; return 2; fi  # 2 = provisional
 
   # The "." fallback is ONLY for an overlay that is plausibly about the root repo itself --

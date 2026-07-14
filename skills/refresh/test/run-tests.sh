@@ -47,6 +47,7 @@ calls_in_fence() {   # $1 = function name -> prints the number of call-shaped us
   awk -v fn="$1" '
     /^```/ { fence = !fence; next }
     !fence { next }
+    /^[ \t]*#/ { next }    # a comment NAMING a function is not a CALL of it
     $0 ~ ("(^|[^A-Za-z0-9_])" fn "([ \t]|$)") { n++ }
     END { print n+0 }
   ' "$SKILL"
@@ -119,6 +120,16 @@ if [ "$guard" -ge 1 ] && [ "$buggy" -eq 0 ]; then
   ok "Phase 0 accepts rc=2 (provisional) and has no '|| skip' on subjects_of"
 else
   bad "Phase 0 provisional handling" "guard_in_code=$guard buggy_or_form=$buggy -- '|| after subjects_of' fires on rc=2 and drops every single-repo project"
+fi
+
+# A failed --apply must halt the SKILL, not just the loop. `|| echo` does not stop at all;
+# `break` leaves the loop but lets Phases 4-8 run against a HALF-MIGRATED repo and report on it
+# as if it were consistent. Both spellings have shipped in this file already. Assert the exit.
+apply=$(awk '/^```/{f=!f;next} f' "$SKILL" | grep -A6 'migrate_rules .* --apply' || true)
+if grep -q 'exit 1' <<<"$apply"; then
+  ok "Phase 3 --apply failure EXITS (does not fall through to later phases)"
+else
+  bad "Phase 3 --apply failure does not exit" "break/|| echo leave later phases running against a half-migrated repo: $apply"
 fi
 
 # Bash-4-only builtins must not creep in: macOS ships bash 3.2, where `mapfile`/`readarray`

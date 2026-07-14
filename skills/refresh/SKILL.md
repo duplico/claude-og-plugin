@@ -132,9 +132,17 @@ done
 # Note the loop: applying outside it would migrate only the LAST overlay and silently leave
 # the rest on legacy numbering, while reporting success.
 for ov in "${OVERLAYS[@]}"; do
-  # A failed migration must STOP, not continue: `|| echo` would leave later overlays migrated
-  # while an earlier one failed -- a partial migration, which is the thing we refuse to write.
-  migrate_rules "$ov" "$OG" --apply || { echo "  migration FAILED for $ov -- stopping"; break; }
+  # A failed migration must halt THE SKILL, not just this loop. `|| echo` does not stop at all,
+  # and `break` only leaves the loop -- Phases 4-8 then run against a repo where some overlays
+  # are migrated and some are not, and report on it as if it were consistent. That is the
+  # partial migration this skill exists to refuse. Exit non-zero and make the state explicit.
+  migrate_rules "$ov" "$OG" --apply || {
+    echo "FATAL: migration FAILED for $ov"
+    echo "  Overlays before it in the list are ALREADY MIGRATED. This repo is now HALF-MIGRATED."
+    echo "  Do NOT continue to Phase 4. Either fix the cause and re-run, or restore with"
+    echo "  'git -C \"$ROOT\" checkout -- .claude/' and start over."
+    exit 1
+  }
 done
 ```
 
