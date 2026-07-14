@@ -210,10 +210,16 @@ suggest_prefix() {   # $1 = overlay dir. A CANDIDATE prefix for a table that has
 }
 
 needs_prefix() {     # $1 = overlay dir. rc=0 if it has legacy rules but NO prefix declared.
-  local n
+  local n pfx rc
   n=$(awk '/^## Project Rules/{f=1;next} /^## /{if(f)exit} f' "$1/SKILL.md" 2>/dev/null \
       | grep -cE '^[0-9]+\. \*\*')
-  [ "$n" -gt 0 ] && [ -z "$(rule_prefix_of "$1")" ]
+  [ "$n" -gt 0 ] || return 1
+  # Honour the status. rule_prefix_of FATALs on an AMBIGUOUS (multi-prefix) table, and command
+  # substitution turns that into an empty string -- so an overlay with TWO prefixes read as one
+  # with NONE, and the remedy offered would be "add a Prefix column" to a table that has two.
+  pfx=$(rule_prefix_of "$1" 2>/dev/null); rc=$?
+  [ "$rc" -eq 0 ] || return 1
+  [ -z "$pfx" ]
 }
 
 migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry

@@ -282,7 +282,7 @@ for ov in "${OVERLAYS[@]}"; do
     printf '%s  [%s:%s] %s\n' "$best" "$(basename "$ov")" "$where" "$p"
   done < <(grep -oE '`[^`]+`' "$ov/SKILL.md" | tr -d '`' \
            | grep -E '^(~/|\./|[A-Za-z0-9_.-]+/)' \
-           | grep -E '\.(md|json|ya?ml|sh|py|tf|toml|cfg|ini|lock)$|/(Dockerfile|Makefile|[Jj]ustfile|Cargo\.toml|go\.mod)$|/$' \
+           | grep -E '\.(md|json|ya?ml|sh|py|tf|toml|cfg|ini|lock)$|/(Dockerfile|Makefile|[Jj]ustfile|Cargo\.toml|go\.mod|CODEOWNERS|LICENSE|NOTICE|OWNERS)$|/$' \
            | sort -u)
 done | grep -v '^OK'
 ```

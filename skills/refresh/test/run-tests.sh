@@ -430,6 +430,32 @@ case "$out" in
   *) bad "check_freshness misdiagnoses a jq failure" "got: $out" ;;
 esac
 
+# The classify_path tests above are only meaningful for paths Phase 6 actually HANDS to
+# classify_path. Its extraction filter is a separate grep in SKILL.md, and the two drifted: the
+# harness asserted `.github/CODEOWNERS` must be DANGLING (not swallowed by the placeholder rule)
+# while the filter never admitted CODEOWNERS at all. An assertion about code the pipeline cannot
+# reach is a vacuous assertion. So: pull the REAL filter out of SKILL.md and check it admits
+# every path these tests claim to cover.
+filt=$(awk '/^ ? ? ?```bash/{f=1} f && /grep -E .\\.\(md\|json/{print; exit}' "$SKILL" \
+       | sed 's/^ *| *//; s/ *\\$//')
+if [ -z "$filt" ]; then
+  bad "could not extract Phase 6 path filter from SKILL.md" "the checks below would be vacuous"
+else
+  for pth in '.github/CODEOWNERS' 'docs/x.md' 'a/Dockerfile' 'src/'; do
+    if printf '%s\n' "$pth" | eval "$filt" >/dev/null 2>&1; then
+      ok "Phase 6 filter ADMITS $pth (so classify_path actually sees it)"
+    else
+      bad "Phase 6 filter DROPS $pth" "classify_path is asserted to handle it, but the pipeline never delivers it -- the assertion is vacuous"
+    fi
+  done
+  # ...and it must still reject prose that merely looks like a path
+  if printf 'git status\n' | eval "$filt" >/dev/null 2>&1; then
+    bad "Phase 6 filter admits prose" "'git status' would be reported as a dangling path"
+  else
+    ok "Phase 6 filter still rejects prose (\`git status\` is not a path)"
+  fi
+fi
+
 echo
 printf 'pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
