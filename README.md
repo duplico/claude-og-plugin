@@ -6,6 +6,7 @@ Personal Claude Code plugin that brings a familiar orchestrator + subagent patte
 
 - **`/og:orchestrate`** -- orchestrator entry point. Scans the current repo and available subagents, reports state. Friendly by default; `--strict` for hard subagent separation.
 - **`/og:orchestrate-init`** -- interactive bootstrap. Generates a project-specific orchestrator overlay, `CLAUDE.md`, permissions, and stack-appropriate domain agents in `<repo>/.claude/`.
+- **`/og:refresh`** -- maintain an existing setup. Checks plugin freshness, drops duplicated generics, **migrates legacy numbered rules to the namespaced scheme**, lints for anti-patterns, and **fact-checks the overlay against the actual repo**. Report-first; nothing changes without confirmation.
 - **Generic subagents** -- `orchestrator-developer` (worktree-creating implementer), `orchestrator-reviewer` (adversarial code review), `orchestrator-tester`, `closed-loop-runner`, plus shared utilities (`editor`, `just-expert`, `web-doc-searcher`).
 - **Copilot reviews (opt-in)** -- `og:copilot-reviews` skill + `og-copilot-review` / `og-copilot-comments` scripts to trigger and correctly find GitHub Copilot code reviews (both author logins, both endpoints, no auto-review on push). Orchestrator agents reach for it only when you bring Copilot into a PR.
 - **`og-pr-reply-resolve`** -- reply to a review comment (Copilot or human) **and** resolve its thread in one call, so a fixed finding is never left as an open conversation.
@@ -27,6 +28,7 @@ Then in any repo:
 ```
 /og:orchestrate            # status + dispatch
 /og:orchestrate-init       # bootstrap a fresh repo's AI tooling
+/og:refresh                # bring an existing repo's setup up to date
 ```
 
 ## Local development
