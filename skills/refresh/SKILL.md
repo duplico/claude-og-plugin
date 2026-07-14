@@ -140,6 +140,7 @@ for ov in "${OVERLAYS[@]}"; do
 done
 
 # ...then, only after the user confirms, and NEVER under --report-only.
+MIGRATED=0
 # Note the loop: applying outside it would migrate only the LAST overlay and silently leave
 # the rest on legacy numbering, while reporting success.
 for ov in "${OVERLAYS[@]}"; do
@@ -147,13 +148,23 @@ for ov in "${OVERLAYS[@]}"; do
   # and `break` only leaves the loop -- Phases 4-8 then run against a repo where some overlays
   # are migrated and some are not, and report on it as if it were consistent. That is the
   # partial migration this skill exists to refuse. Exit non-zero and make the state explicit.
-  migrate_rules "$ov" "$OG" --apply || {
+  if migrate_rules "$ov" "$OG" --apply; then
+    MIGRATED=$((MIGRATED + 1))
+  else
     echo "FATAL: migration FAILED for $ov"
-    echo "  Overlays before it in the list are ALREADY MIGRATED. This repo is now HALF-MIGRATED."
-    echo "  Do NOT continue to Phase 4. Either fix the cause and re-run, or restore with"
-    echo "  'git -C \"$ROOT\" checkout -- .claude/' and start over."
+    if [ "$MIGRATED" -gt 0 ]; then
+      # Only claim a half-migrated repo when overlays actually got written. migrate_rules also
+      # returns non-zero WITHOUT touching anything (a refusal: --report-only, an ambiguous
+      # prefix, duplicate rule ids). Announcing "ALREADY MIGRATED" there would send the user
+      # reverting a tree that was never modified.
+      echo "  $MIGRATED overlay(s) were ALREADY MIGRATED before this one. The repo is HALF-MIGRATED."
+      echo "  Restore with: git -C \"$ROOT\" checkout -- .claude/"
+    else
+      echo "  Nothing was written -- this failed on the first overlay. The tree is unchanged."
+    fi
+    echo "  Do NOT continue to Phase 4."
     exit 1
-  }
+  fi
 done
 ```
 
@@ -284,8 +295,8 @@ for ov in "${OVERLAYS[@]}"; do
     fi
     printf '%s  [%s:%s] %s\n' "$best" "$(basename "$ov")" "$where" "$p"
   done < <(grep -oE '`[^`]+`' "$ov/SKILL.md" | tr -d '`' \
-           | grep -E '^(~/|\./|[A-Za-z0-9_.-]+/)' \
-           | grep -E '\.(md|json|ya?ml|sh|py|tf|toml|cfg|ini|lock)$|/(Dockerfile|Makefile|[Jj]ustfile|Cargo\.toml|go\.mod|CODEOWNERS|LICENSE|NOTICE|OWNERS)$|/$' \
+           | grep -E '^(~/|\./|[A-Za-z0-9_.-]+/)|^([Jj]ustfile|Makefile|Dockerfile|CODEOWNERS|LICENSE)$' \
+           | grep -E '\.(md|json|ya?ml|sh|py|tf|toml|cfg|ini|lock)$|(^|/)(Dockerfile|Makefile|[Jj]ustfile|Cargo\.toml|go\.mod|CODEOWNERS|LICENSE|NOTICE|OWNERS)$|/$' \
            | sort -u)
 done | grep -v '^OK'
 ```

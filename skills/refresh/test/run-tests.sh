@@ -67,7 +67,13 @@ while read -r fn; do
   [ -n "$fn" ] || continue
   if [ "$(calls_in_fence "$fn")" -ge 1 ]; then ok "table function $fn() is actually called"
   else bad "table advertises $fn() but no phase calls it" "dead row -- delete the function or wire it in"; fi
-done < <(grep -oE '^\| `[a-z_]+' "$SKILL" | tr -d '|` ')
+# Scope to the FUNCTION table, not every table in the file. The old form keyed on any row
+# starting `| \`...`, which happens to miss the Phase 4 rule-docs table only because that table is
+# INDENTED inside a list item. Unindent it and `docs/universal-orchestrator-rules.md` becomes a
+# "function" named `docs` -- which would then pass VACUOUSLY, since the word appears in bash.
+# Correct by accident is not correct.
+done < <(awk '/^\| *Function *\|/{t=1;next} t && !/^\|/{t=0} t' "$SKILL" \
+         | grep -oE '^\| `[a-z_]+' | tr -d '|` ')
 
 # Phase 0 must not silently launder a GUESSED subject as a verified one. subjects_of returns
 # rc=2 when it fell back to convention; those overlays are refreshable, but every Phase 6
@@ -441,7 +447,7 @@ filt=$(awk '/^ ? ? ?```bash/{f=1} f && /grep -E .\\.\(md\|json/{print; exit}' "$
 if [ -z "$filt" ]; then
   bad "could not extract Phase 6 path filter from SKILL.md" "the checks below would be vacuous"
 else
-  for pth in '.github/CODEOWNERS' 'docs/x.md' 'a/Dockerfile' 'src/'; do
+  for pth in '.github/CODEOWNERS' 'docs/x.md' 'a/Dockerfile' 'src/' 'justfile' 'Makefile'; do
     if printf '%s\n' "$pth" | eval "$filt" >/dev/null 2>&1; then
       ok "Phase 6 filter ADMITS $pth (so classify_path actually sees it)"
     else
@@ -471,6 +477,22 @@ fi
 grep -q 'cite Rule 12 -> FC-1' <<<"$out" \
   && ok "citation scan still reports the REAL citation outside the fence" \
   || bad "citation scan now misses real citations" "over-corrected: $out"
+
+# The function-table extractor must read the FUNCTION table, not every table in SKILL.md. It used
+# to key on any row starting `| `...`, and missed the Phase 4 rule-docs table ONLY because that
+# table is indented inside a list item. Unindent it and `docs/universal-orchestrator-rules.md`
+# becomes a "function" called `docs` -- which then passes VACUOUSLY, since `docs` appears in bash.
+# Correct-by-accident is not correct. Feed it a hostile SKILL and check it does not take the bait.
+HS="$TMP/hostile-skill.md"
+{ printf '| Doc | Rules |\n|---|---|\n| `docs/universal-orchestrator-rules.md` | OG-0..OG-11 |\n\n'
+  printf '| Function | Does |\n|---|---|\n| `subjects_of <overlay> <root>` | Gate B |\n\n'
+  printf '| Path | Prefix |\n|---|---|\n| `deployment/thing.md` | DEPLOY |\n'; } > "$HS"
+got=$(awk '/^\| *Function *\|/{t=1;next} t && !/^\|/{t=0} t' "$HS" | grep -oE '^\| `[a-z_]+' | tr -d '|` ' | tr '\n' ' ')
+if [ "$got" = "subjects_of " ]; then
+  ok "table extractor reads only the Function table (paths in other tables are not functions)"
+else
+  bad "table extractor picks up non-functions" "got '$got', want 'subjects_of ' -- a path row became a fake function that would pass vacuously"
+fi
 
 echo
 printf 'pass=%s fail=%s\n' "$pass" "$fail"
