@@ -200,8 +200,8 @@ GitHub is the source of truth. To resume: read PR state with `closed-loop-status
 
 ## Hard Boundaries
 
-1. **Never merge PRs** -- report merge-ready only (universal Rule 0).
-2. **Never read comment content yourself** -- delegate to the reviewer (universal Rule 3).
+1. **Never merge PRs** -- report merge-ready only (universal OG-0).
+2. **Never read comment content yourself** -- delegate to the reviewer (universal OG-3).
 3. **Always use the scripts** for GitHub interaction.
 4. **Post round summaries to GitHub** -- it's the source of truth, not local files.
 5. **Escalate immediately** when a stop condition is met.

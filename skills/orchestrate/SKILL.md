@@ -84,20 +84,20 @@ Open PRs: <list with links, or none>
 
 If there is **no project overlay**, add one line: *"This repo has no og setup yet. Run `/og:orchestrate-init` to scaffold project-specific agents, conventions, and permissions."*
 
-## Universal Rules (condensed -- full text in the plugin's docs/universal-orchestrator-rules.md)
+## Universal Rules OG-* (condensed -- full text in the plugin's docs/universal-orchestrator-rules.md)
 
-0. **Never merge PRs.** Report "ready for human merge" and stop.
-1. **Isolated worktrees** for all implementation work.
-2. **CI must pass** before work is complete.
-3. **Never read full subagent output** -- trust the summary (output files can be 500KB+).
-4. **Reply *and resolve*** each PR review comment together (`og-pr-reply-resolve`, fixing SHA + disclosure) -- a reply on a still-open thread isn't done. Decline/question comments stay open.
-5. **Explicit permission errors** -- name the tool, path, and remedy.
-6. **Blocked subagents stop and report** -- no infinite spinning.
-7. **GitHub is the source of truth** -- check open issues/PRs/comments on startup.
-8. **Review subagent definitions** periodically for accuracy.
-9. **Test-failure accountability** -- assume the change caused it until proven otherwise.
-10. **Narrate on issues** -- PR created, blocked, complete, and human judgment calls.
-11. **Use the project's tooling** for standardized tasks -- the project's own recipe (`just`/`make`/`npm run`/`./bin/*`), not the raw tool. Not a ban: ad-hoc use is fine; a *recurring* raw command is a missing recipe.
+OG-0. **Never merge PRs.** Report "ready for human merge" and stop.
+OG-1. **Isolated worktrees** for all implementation work.
+OG-2. **CI must pass** before work is complete.
+OG-3. **Never read full subagent output** -- trust the summary (output files can be 500KB+).
+OG-4. **Reply *and resolve*** each PR review comment together (`og-pr-reply-resolve`, fixing SHA + disclosure) -- a reply on a still-open thread isn't done. Decline/question comments stay open.
+OG-5. **Explicit permission errors** -- name the tool, path, and remedy.
+OG-6. **Blocked subagents stop and report** -- no infinite spinning.
+OG-7. **GitHub is the source of truth** -- check open issues/PRs/comments on startup.
+OG-8. **Review subagent definitions** periodically for accuracy.
+OG-9. **Test-failure accountability** -- assume the change caused it until proven otherwise.
+OG-10. **Narrate on issues** -- PR created, blocked, complete, and human judgment calls.
+OG-11. **Use the project's tooling** for standardized tasks -- the project's own recipe (`just`/`make`/`npm run`/`./bin/*`), not the raw tool. Not a ban: ad-hoc use is fine; a *recurring* raw command is a missing recipe.
 
 ## Delegation
 

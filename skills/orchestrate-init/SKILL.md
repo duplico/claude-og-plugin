@@ -105,11 +105,13 @@ its universal-orchestrator-rules), then apply this project's specifics below.
 ## Dependency order (if multi-repo)
 <upstream -> downstream graph, or "single repo">
 
-## Project Rules (12+)
-<!-- og owns rules 0-11; do NOT restate them here. "Use the project's task runner" is
-     already universal Rule 11 -- the project's commands go under "Stack & Commands". -->
-12. <project-specific rule, if any -- something an agent could not infer from the repo>
-13. <...>
+## Project Rules
+<!-- Rules are namespaced by the repo that OWNS them: <PREFIX>-1, <PREFIX>-2, ... starting at 1.
+     Do NOT restate an OG-* rule -- the plugin already guarantees it.
+     Do NOT restate another repo's rule -- CITE it ("see DEPLOY-3"). A restatement is a second
+     copy free to drift. -->
+<PREFIX>-1. <something an agent could not infer from the repo>
+<PREFIX>-2. <...>
 
 ## GitHub
 - Slug: <owner/repo>
