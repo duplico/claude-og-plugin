@@ -123,15 +123,20 @@ fi
 
 # The \b word-boundary bug must not come back: it is GNU-only, matches nothing on BSD, and an
 # empty citation set reads as "no citations" while the rules get rewritten anyway.
-# NOTE THE ESCAPING, and do not "simplify" it: in a double-quoted shell string, \\\\b becomes
-# the grep pattern \\b, in which \\ matches a LITERAL BACKSLASH. So this matches the real bug
-# (a single backslash-b inside a grep -E pattern). Verified by reintroducing the genuine bug:
-# the harness fails, and passes again on restore. A version that searched for a doubled
-# backslash would be a regression test that cannot catch its own regression.
-if grep -rq "grep -oE '\\\\b" "$HERE/.." ; then
-  bad "GNU-only \\b in a grep -E pattern" "BSD/macOS grep -E does not support \\b -- it would match nothing and silently skip every citation"
+#
+# Match ANY grep whose flags contain E and whose pattern contains a literal backslash-b --
+# not just `grep -oE`. The bug is just as fatal as `grep -E '\b...'`, and an earlier version of
+# this check keyed on `-oE` alone and sailed straight past that form. Verified against all of
+# `grep -oE`, `grep -E` and `grep -rqE`. It deliberately does NOT fire on perl, where \b is
+# supported and which migrate_rules relies on.
+#
+# The test file is excluded: it necessarily contains the pattern it hunts for, and a check that
+# always matches itself is a check that can never go green -- or, worse, never go red.
+BUG_B='grep [^;|]*-[a-zA-Z]*E[^;|]*\\b'
+if grep -rqE --exclude="$(basename "$0")" "$BUG_B" "$HERE/.."; then
+  bad "GNU-only \\b in a grep -E pattern" "BSD/macOS grep -E does not support \\b -- it matches nothing and silently skips every citation. Offender(s): $(grep -rlE --exclude="$(basename "$0")" "$BUG_B" "$HERE/..")"
 else
-  ok "no GNU-only \\b in any grep -E pattern"
+  ok "no GNU-only \\b in any grep -E pattern (all -E forms scanned)"
 fi
 
 t_shape() { is_og_shaped "$TMP/$1" && r=og || r=legacy
