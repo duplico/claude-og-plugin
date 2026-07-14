@@ -10,8 +10,9 @@ Personal Claude Code plugin that brings a familiar orchestrator + subagent patte
 - **Copilot reviews (opt-in)** -- `og:copilot-reviews` skill + `og-copilot-review` / `og-copilot-comments` scripts to trigger and correctly find GitHub Copilot code reviews (both author logins, both endpoints, no auto-review on push). Orchestrator agents reach for it only when you bring Copilot into a PR.
 - **`og-pr-reply-resolve`** -- reply to a review comment (Copilot or human) **and** resolve its thread in one call, so a fixed finding is never left as an open conversation.
 - **`claude-tmux`** -- manage a persistent tmux session of Claude Code windows. `new` / `save` / `restore` / `status` / `install-hooks` / `uninstall-hooks`. Resolves each window's Claude session id from `~/.claude/sessions/<pid>.json` and snapshots it to `~/.claude/tmux-state.json`, so `restore` brings your agents back with `claude --resume` rather than starting fresh ones. Atomic, locked writes (auto-save has four triggers, so concurrent saves are the norm); `restore` is idempotent. Requires `tmux` and `jq`.
+- **`og-release`** -- bump the plugin version and catch the drift that makes `claude plugin update` a silent no-op. `og-release check` fails if commits landed since the last release tag without a version bump.
 - **Guard hooks** -- branch guard, worktree guard, AI-disclosure injection, WSL2 desktop notifications.
-- **Universal rules docs** -- the 10 universal orchestrator rules referenced by every subagent.
+- **Universal rules docs** -- the universal orchestrator rules referenced by every subagent. The range is stated in the `## Universal Rules` header of `docs/universal-orchestrator-rules.md`; project rules start one past it. Do not hardcode a count -- it moves.
 
 ## Install
 
@@ -34,6 +35,25 @@ Then in any repo:
 git clone git@github.com:duplico/claude-og-plugin.git ~/og
 claude --plugin-dir ~/og   # loads this plugin into the session
 ```
+
+## Releasing
+
+**`claude plugin update` compares the version string in `.claude-plugin/plugin.json`, not the commit.** If a
+release lands without bumping it, `update` reports *"already at the latest version"* and pulls
+**nothing** -- the changes are merged and undeliverable.
+
+That is not theoretical: v0.1.5 shipped, then a new universal rule and a new tool merged on top
+of it, and every `claude plugin update` answered "up to date" while fetching neither.
+
+```bash
+og-release check          # are there commits since the last release tag with no version bump?
+og-release bump minor     # major | minor | patch | X.Y.Z
+# commit + PR + merge (main is protected), then:
+claude plugin tag --push  # tags main as og--v<version>, validating .claude-plugin/plugin.json agrees
+```
+
+Bump **minor** for a new universal rule, a new agent, or a new shipped tool -- anything that
+changes behavior for existing users. **Patch** for fixes.
 
 ## Design
 
