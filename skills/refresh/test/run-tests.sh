@@ -385,6 +385,24 @@ for fmt in old new; do
     || bad "og rule range unreadable in $fmt format" "got '$got' -- migrate_rules would FATAL on every overlay"
 done
 
+# "--report-only changes nothing" is the contract a user is relying on when they type the flag.
+# It was enforced by PROSE -- by asking the model not to pass --apply. Every other destructive
+# path here fails closed; that one failed open. A promise the code cannot keep is not a promise.
+RO="$TMP/ro-orchestrator"; mkdir -p "$RO"
+printf 'og:orchestrate\n\n## Subject repos\n\n| Path | Prefix | Slug | Default branch |\n|---|---|---|---|\n| `.` | RO | o/ro | `main` |\n\n## Project Rules\n\n12. **A.** x\n\n## End\n' > "$RO/SKILL.md"
+cp "$RO/SKILL.md" "$TMP/ro.before"
+( export OG_REFRESH_REPORT_ONLY=1; migrate_rules "$RO" "$OGDIR" --apply >/dev/null 2>&1 )
+if cmp -s "$TMP/ro.before" "$RO/SKILL.md"; then
+  ok "--report-only REFUSES --apply (guard, not prose)"
+else
+  bad "--report-only was defeated by --apply" "the file was rewritten while OG_REFRESH_REPORT_ONLY=1"
+fi
+# ...and it must not become a blanket block: --apply still works without the guard set.
+migrate_rules "$RO" "$OGDIR" --apply >/dev/null 2>&1
+grep -q '^RO-1\.' "$RO/SKILL.md" \
+  && ok "--apply still works when the guard is NOT set (not a blanket block)" \
+  || bad "--apply broken" "the guard blocks even when unset: $(grep -E '^(RO-|12\.)' "$RO/SKILL.md")"
+
 echo
 printf 'pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -199,6 +199,15 @@ needs_prefix() {     # $1 = overlay dir. rc=0 if it has legacy rules but NO pref
 migrate_rules() {    # $1 = overlay dir, $2 = OG install, $3 = --apply|--dry
   local ov="$1" og="$2" mode="${3:---dry}"
   local f="$ov/SKILL.md"
+
+  # `--report-only changes nothing` was enforced by PROSE -- by asking the model not to pass
+  # --apply. Every other destructive path in this skill fails closed; this one failed open, and
+  # it is the one the user is trusting when they type the flag. Make it a guard.
+  if [ "${OG_REFRESH_REPORT_ONLY:-}" = "1" ] && [ "$mode" = "--apply" ]; then
+    echo "REFUSED: --apply under --report-only. OG_REFRESH_REPORT_ONLY=1 is set." >&2
+    echo "         The contract is that --report-only changes NOTHING. Not negotiable here." >&2
+    return 1
+  fi
   local prefix; prefix=$(rule_prefix_of "$ov")
   if [ -z "$prefix" ]; then
     echo "FATAL: $ov has no Prefix in its ## Subject repos table"

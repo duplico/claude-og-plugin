@@ -12,6 +12,14 @@ allowed-tools: Read, Glob, Grep, Bash, Edit, Write, Task
 
 `--report-only` = find drift, change nothing.
 
+If invoked with `--report-only`, **export the guard before anything else**:
+
+```bash
+export OG_REFRESH_REPORT_ONLY=1   # migrate_rules REFUSES --apply while this is set.
+```
+
+The contract used to be enforced by asking you not to pass `--apply`. It is a guard now, because a promise the code cannot keep is not a promise. Do not run `og-sync --fix` either.
+
 ## Three rules, in priority order
 
 1. **Report, confirm, fix, verify. Never blind-rewrite.**
