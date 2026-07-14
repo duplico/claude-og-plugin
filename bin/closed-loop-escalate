@@ -14,6 +14,8 @@
 #   circular_feedback - Same issue appears repeatedly or A->B->A
 #   design_decision   - Category C items requiring human decision
 #   round_limit       - Configured round limit reached
+#   ci_timeout        - CI did not complete within the timeout (stuck, or never ran)
+#   awaiting_review   - No reviews arrived in the window (NOT a failure; waiting on a human)
 #
 # Options:
 #   --session UUID    Session UUID for marker (required if continuing session)
@@ -36,6 +38,8 @@ REASON must be one of:
   circular_feedback - Same issue appears repeatedly or A->B->A
   design_decision   - Category C items requiring human decision
   round_limit       - Configured round limit reached
+  ci_timeout        - CI did not complete within the timeout (stuck, or never ran)
+  awaiting_review   - No reviews arrived in the window (NOT a failure; waiting on a human)
 
 Options:
   --session UUID    Session UUID for marker
@@ -106,11 +110,11 @@ fi
 
 # Validate reason
 case "$REASON" in
-    not_converging|circular_feedback|design_decision|round_limit)
+    not_converging|circular_feedback|design_decision|round_limit|ci_timeout|awaiting_review)
         ;;
     *)
         echo "Error: Invalid reason '$REASON'" >&2
-        echo "Must be one of: not_converging, circular_feedback, design_decision, round_limit" >&2
+        echo "Must be one of: not_converging, circular_feedback, design_decision, round_limit, ci_timeout, awaiting_review" >&2
         exit 1
         ;;
 esac
@@ -133,6 +137,12 @@ case "$REASON" in
         ;;
     round_limit)
         REASON_DESC="Round limit reached"
+        ;;
+    ci_timeout)
+        REASON_DESC="CI did not complete within the configured timeout (it may be stuck, or no CI ran)"
+        ;;
+    awaiting_review)
+        REASON_DESC="No reviews arrived within the configured window. This is not a failure -- the PR is simply waiting on a human reviewer."
         ;;
 esac
 
