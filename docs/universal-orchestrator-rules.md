@@ -2,8 +2,6 @@
 
 These rules apply to ALL orchestrators using the `og` plugin. They are **prefixed `OG-`** so a citation like `OG-6` means the same thing everywhere and can never be confused with a project's own rule. `OG-0` is the most critical.
 
-**Rules are namespaced by the thing that owns them, not by an integer range.** The plugin owns `OG-*`. A repository owns `<PREFIX>-*`, where the prefix is its own short slug. See below.
-
 ---
 
 ## Universal Rules (OG-*)
@@ -171,7 +169,7 @@ Invoke standardized tasks through the project's front door -- `just test`, `make
 
 ## Project Rules (`<PREFIX>-*`)
 
-**Rules are scoped to a repository, and the prefix names that repository.** A repo declares its prefix in its overlay's `## Subject repos` table; its rules are then `<PREFIX>-1`, `<PREFIX>-2`, ... starting at 1.
+A repo owns its rules and names them with its own prefix: `<PREFIX>-1`, `<PREFIX>-2`, ... numbered from 1. The prefix is declared in the overlay's `## Subject repos` table and must match `[A-Z][A-Z0-9]*`.
 
 ```markdown
 ## Subject repos
@@ -187,35 +185,14 @@ DEPLOY-1. **Ops container for everything.** ...
 INFRA-1. **Confirm before touching Vault, DNS, or step-ca.** ...
 ```
 
-### Why prefixes, and not a shared number line
+Rules nest. The set in force is the chain from the outside in: `OG-*` (the plugin), then the enclosing workspace repo if there is one (`SWCCDC-*`), then the repo you are working in (`DEPLOY-*`). Clone `deployment` alone and `DEPLOY-*` still applies; `SWCCDC-*` is simply absent.
 
-A shared integer range forces every project to renumber whenever the plugin adds a rule -- and a *renumber is the most destructive operation a maintenance tool can perform*. It also lets citations rot **silently**: when `OG-11` was added, an overlay that said "see OG-11" (meaning its own eleventh rule) suddenly resolved to a real universal rule that said something entirely different. That is worse than a dangling reference.
+- **Universal rules win** where they conflict. Project rules may be stricter, never looser.
+- **A rule is owned by exactly one repo.** Cite another repo's rule (`see DEPLOY-3`); never restate it.
+- **Never restate an `OG-*` rule** as a project rule.
+- The plugin also ships `R1`-`R9` (subagent rules) in `claude-agent-rules.md` -- a separate plugin-owned namespace.
 
-With prefixes:
-
-- The plugin adds `OG-12`. **No project changes anything. Ever.**
-- `MAGPIE-2` and `OG-2` are different rules and cannot be confused.
-- Collisions are impossible **by construction**, so nothing needs to detect or repair them.
-
-### Rules nest with repositories
-
-Repos contain repos. A workspace is itself a repo, and the projects inside it are first-class repos that can carry their own rules -- committed to them, travelling with them if cloned alone.
-
-So the rules in force are the **chain** from the outside in:
-
-```
-OG-*        the plugin
-SWCCDC-*    the enclosing workspace repo (cross-project rules)
-DEPLOY-*    the repo you are actually working in
-```
-
-Clone `deployment` on its own and `DEPLOY-*` still applies; `SWCCDC-*` simply is not there. That is the point.
-
-### Precedence and ownership
-
-- **When a project rule conflicts with a universal one, the universal rule wins.** Project rules may be *stricter*, never looser.
-- **A rule is owned by exactly one repo.** Do not restate another repo's rule -- **cite it** (`see DEPLOY-3`). A restatement is a second copy free to drift, and drift is how a rule ends up contradicting itself.
-- **Never restate an `OG-*` rule as a project rule.** If you find yourself writing one, you are re-deriving something the plugin already guarantees.
+---
 
 ## See Also
 

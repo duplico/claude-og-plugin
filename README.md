@@ -12,7 +12,7 @@ Personal Claude Code plugin that brings a familiar orchestrator + subagent patte
 - **`claude-tmux`** -- manage a persistent tmux session of Claude Code windows. `new` / `save` / `restore` / `status` / `install-hooks` / `uninstall-hooks`. Resolves each window's Claude session id from `~/.claude/sessions/<pid>.json` and snapshots it to `~/.claude/tmux-state.json`, so `restore` brings your agents back with `claude --resume` rather than starting fresh ones. Atomic, locked writes (auto-save has four triggers, so concurrent saves are the norm); `restore` is idempotent. Requires `tmux` and `jq`.
 - **`og-release`** -- bump the plugin version and catch the drift that makes `claude plugin update` a silent no-op. `og-release check` fails if commits landed since the last release tag without a version bump.
 - **Guard hooks** -- branch guard, worktree guard, AI-disclosure injection, WSL2 desktop notifications.
-- **Universal rules docs** -- the universal orchestrator rules referenced by every subagent. The range is stated in the `## Universal Rules` header of `docs/universal-orchestrator-rules.md`; project rules start one past it. Do not hardcode a count -- it moves.
+- **Universal rules docs** -- the `OG-*` orchestrator rules referenced by every subagent. A repo's own rules are namespaced `<PREFIX>-*` and numbered from 1, so the plugin can add a rule without any project renumbering.
 
 ## Install
 

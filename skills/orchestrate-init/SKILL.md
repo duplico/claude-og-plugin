@@ -99,6 +99,16 @@ its universal-orchestrator-rules), then apply this project's specifics below.
 | og:just-expert | justfile authoring and review |
 <...any generated project-local domain agents...>
 
+## Subject repos
+<!-- REQUIRED. The repo(s) this overlay is about. Paths relative to the repo holding .claude/;
+     `.` for that repo itself. PREFIX is this repo's uppercase slug ([A-Z][A-Z0-9]*) -- it
+     namespaces the repo's rules below, so they can never collide with OG-* or another repo's.
+     /og:refresh reads this table. -->
+
+| Path | Prefix | Slug | Default branch |
+|---|---|---|---|
+| `.` | <PREFIX> | <owner/repo> | <branch> |
+
 ## Repository layout
 <key directories and what lives in them>
 
@@ -108,8 +118,7 @@ its universal-orchestrator-rules), then apply this project's specifics below.
 ## Project Rules
 <!-- Rules are namespaced by the repo that OWNS them: <PREFIX>-1, <PREFIX>-2, ... starting at 1.
      Do NOT restate an OG-* rule -- the plugin already guarantees it.
-     Do NOT restate another repo's rule -- CITE it ("see DEPLOY-3"). A restatement is a second
-     copy free to drift. -->
+     Do NOT restate another repo's rule -- CITE it ("see DEPLOY-3"). -->
 <PREFIX>-1. <something an agent could not infer from the repo>
 <PREFIX>-2. <...>
 
