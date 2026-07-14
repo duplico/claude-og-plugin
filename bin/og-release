@@ -25,19 +25,34 @@ command -v jq >/dev/null || { echo "error: jq required" >&2; exit 1; }
 cur=$(jq -r .version "$PJ")
 name=$(jq -r .name "$PJ")
 
-last_tag() { git -C "$ROOT" tag --list "${name}--v*" | sed "s/^${name}--v//" | sort -V | tail -1; }
+# Release tags. The canonical format is `<name>--v<version>` (what `claude plugin tag`
+# creates). Older repos may carry legacy `v<version>` tags -- honor those too, or `check`
+# reports "no release tag exists yet" in a repo that plainly has one, and the STALE
+# comparison silently never fires.
+# Sets the globals LT (version) and TAG_FMT (prefix). Deliberately does NOT print-and-capture:
+# `lt=$(last_tag)` would run it in a SUBSHELL, so any global it set would be discarded and the
+# caller would silently see an empty prefix.
+LT=""; TAG_FMT=""
+find_last_tag() {
+  LT=$(git -C "$ROOT" tag --list "${name}--v*" | sed "s/^${name}--v//" | sort -V | tail -1)
+  if [ -n "$LT" ]; then TAG_FMT="${name}--v"; return 0; fi
+  LT=$(git -C "$ROOT" tag --list 'v[0-9]*' | sed 's/^v//' | sort -V | tail -1)
+  if [ -n "$LT" ]; then TAG_FMT="v"; return 0; fi
+  return 1
+}
 
 cmd_check() {
-  local lt; lt=$(last_tag)
+  find_last_tag || true
+  local lt="$LT"
   echo "plugin.json: v$cur"
   if [ -z "$lt" ]; then
-    echo "no ${name}--v* release tag exists yet"
+    echo "no release tag found (looked for ${name}--v* and legacy v*)"
   else
-    echo "last tag:    v$lt"
+    echo "last tag:    ${TAG_FMT}${lt}$([ "$TAG_FMT" = "v" ] && echo '  (legacy format; new tags will be '"${name}"'--v<version>)')"
   fi
   local since
-  if [ -n "$lt" ] && git -C "$ROOT" rev-parse -q --verify "${name}--v${lt}" >/dev/null; then
-    since=$(git -C "$ROOT" rev-list --count "${name}--v${lt}..HEAD")
+  if [ -n "$lt" ] && git -C "$ROOT" rev-parse -q --verify "${TAG_FMT}${lt}" >/dev/null; then
+    since=$(git -C "$ROOT" rev-list --count "${TAG_FMT}${lt}..HEAD")
   else
     since=$(git -C "$ROOT" rev-list --count HEAD)
   fi
