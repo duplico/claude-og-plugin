@@ -81,6 +81,15 @@ End every task with a summary block the orchestrator can parse without reading y
 
 When the project has a `CLAUDE.md`, `.github/copilot-instructions.md`, or `.ai/context/` directory, **read it first** and follow its conventions. Project-specific rules override generic patterns.
 
+## R10. State What Is True Now -- No History Lessons
+
+Docs, comments, and agent-facing instructions describe the current state. Never narrate your own corrected understanding -- a prior wrong value, why it was wrong, or what research or assumption misled you. That is the author's process, not the project's state, and every future reader pays to wade through it.
+
+- Unmerged, never-shipped changes are not history. Do not preserve backwards compatibility with them, and do not document them as a past state.
+- "X, not Y" is justified only for a live footgun a reader would actually reach for -- one clause, no backstory.
+- Rationale for a genuinely shipped change goes in the commit or PR message, not the durable doc.
+- When in doubt, cut the history.
+
 ---
 
 ## See Also
