@@ -241,7 +241,7 @@ Grep for each; do not eyeball.
    | Doc | Rules | Audience |
    |---|---|---|
    | `docs/universal-orchestrator-rules.md` | `OG-0`..`OG-11` | orchestrators |
-   | `docs/claude-agent-rules.md` | `R1`..`R9` | every subagent |
+   | `docs/claude-agent-rules.md` | `R1`..`R10` | every subagent |
 
    Reading only the first is how a live run missed an overlay restating **R1** (AI disclosure) nearly verbatim, exception list and all.
 

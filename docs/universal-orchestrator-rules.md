@@ -190,7 +190,7 @@ Rules nest. The set in force is the chain from the outside in: `OG-*` (the plugi
 - **Universal rules win** where they conflict. Project rules may be stricter, never looser.
 - **A rule is owned by exactly one repo.** Cite another repo's rule (`see DEPLOY-3`); never restate it.
 - **Never restate an `OG-*` rule** as a project rule.
-- The plugin also ships `R1`-`R9` (subagent rules) in `claude-agent-rules.md` -- a separate plugin-owned namespace.
+- The plugin also ships `R1`-`R10` (subagent rules) in `claude-agent-rules.md` -- a separate plugin-owned namespace.
 
 ---
 
