@@ -4,7 +4,7 @@
 # Posts a structured escalation comment that:
 # - Includes <!-- AWAITING_HUMAN: reason --> marker
 # - Includes AI session marker for filtering
-# - Tags @duplico for notification
+# - Tags the maintainer (default: repo owner; override with --notify or OG_ESCALATE_NOTIFY)
 # - Includes proper AI disclosure
 #
 # Usage: closed-loop-escalate owner/repo PR_NUMBER REASON "message" [options]
@@ -22,6 +22,8 @@
 #   --model MODEL     Model name for disclosure (default: "Opus 4.7")
 #   --round N         Current round number for context
 #   --history JSON    Round history as JSON array for summary table
+#   --notify HANDLE   GitHub handle to notify (with or without leading @).
+#                      Falls back to $OG_ESCALATE_NOTIFY, then the repo owner.
 #
 # Example:
 #   closed-loop-escalate SouthwestCCDC/magpie 42 design_decision "Architecture change needed" \
@@ -46,6 +48,9 @@ Options:
   --model MODEL     Model name for disclosure (default: "Opus 4.7")
   --round N         Current round number
   --history JSON    Round history as JSON array
+  --notify HANDLE   GitHub handle to notify (with or without leading @).
+                     Tags the maintainer (default: repo owner; override with
+                     --notify or OG_ESCALATE_NOTIFY)
 
 Example:
   closed-loop-escalate SouthwestCCDC/magpie 42 design_decision "Need decision on API design"
@@ -69,6 +74,7 @@ SESSION_UUID=""
 MODEL="Opus 4.7"
 ROUND=""
 HISTORY=""
+NOTIFY_HANDLE=""
 
 # Parse options
 while [[ $# -gt 0 ]]; do
@@ -87,6 +93,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --history)
             HISTORY="$2"
+            shift 2
+            ;;
+        --notify)
+            NOTIFY_HANDLE="$2"
             shift 2
             ;;
         *)
@@ -118,6 +128,25 @@ case "$REASON" in
         exit 1
         ;;
 esac
+
+# Resolve the handle to notify, in order of precedence:
+#   1. --notify HANDLE
+#   2. $OG_ESCALATE_NOTIFY
+#   3. Auto-derived repo owner (via `gh repo view`)
+#   4. Unresolved -- fall back to a neutral, handle-free message
+if [[ -z "$NOTIFY_HANDLE" ]]; then
+    NOTIFY_HANDLE="${OG_ESCALATE_NOTIFY:-}"
+fi
+if [[ -z "$NOTIFY_HANDLE" ]]; then
+    NOTIFY_HANDLE=$(gh repo view "$REPO" --json owner --jq '.owner.login' 2>/dev/null || true)
+    if [[ -n "$NOTIFY_HANDLE" ]]; then
+        NOTIFY_HANDLE="@${NOTIFY_HANDLE}"
+    fi
+fi
+# Normalize to a single leading @ (handles values supplied with or without one)
+if [[ -n "$NOTIFY_HANDLE" ]]; then
+    NOTIFY_HANDLE="@${NOTIFY_HANDLE#@}"
+fi
 
 # Generate session UUID if not provided
 if [[ -z "$SESSION_UUID" ]]; then
@@ -169,6 +198,14 @@ if [[ -n "$ROUND" ]]; then
 "
 fi
 
+# Build the notify line: tag the resolved handle, or fall back to a neutral
+# message if no handle could be resolved (never emit a broken bare "@").
+if [[ -n "$NOTIFY_HANDLE" ]]; then
+    NOTIFY_LINE="${NOTIFY_HANDLE} - Please respond when ready to continue."
+else
+    NOTIFY_LINE="A human maintainer's input is required -- please respond when ready to continue."
+fi
+
 # Construct escalation comment
 FULL_COMMENT="<!-- AI:closed-loop:${SESSION_UUID} -->
 <!-- AWAITING_HUMAN: ${REASON} -->
@@ -180,7 +217,7 @@ FULL_COMMENT="<!-- AI:closed-loop:${SESSION_UUID} -->
 ${ROUND_INFO}${MESSAGE}
 ${HISTORY_TABLE}
 
-@duplico - Please respond when ready to continue.
+${NOTIFY_LINE}
 
 (AI-generated via Claude Code w/ ${MODEL})"
 
