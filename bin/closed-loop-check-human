@@ -2,7 +2,8 @@
 # closed-loop-check-human: Find human responses since a timestamp
 #
 # Fetches PR comments and filters out AI-generated ones to find human responses.
-# Since all comments appear from the same OAuth user (@duplico), we filter by content:
+# All AI-authored comments come from the same OAuth user as the running `gh` token,
+# so we filter by body-content markers rather than by author.
 # - SKIP comments containing <!-- AI:closed-loop (session marker)
 # - SKIP comments containing (AI-generated via Claude Code (disclosure)
 # - RETURN comments that have neither - these are human responses
