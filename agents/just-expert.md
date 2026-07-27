@@ -110,13 +110,12 @@ _ensure-deps:
     ...
 ```
 
-## Quality Standards
+## Quality Standards (verify before finalizing)
 
-Before finalizing any justfile changes:
-
-1. **Documentation**: Every public recipe has a descriptive comment
-2. **Consistency**: Naming follows established patterns in the project
-3. **Hierarchy**: Related recipes are grouped logically
-4. **Defaults**: Parameters have sensible defaults where appropriate
-5. **Privacy**: Helper recipes are marked [private] and prefixed with _
-6. **Verification**: Syntax is valid
+1. **Parses and formats**: `just --fmt --check --unstable` passes
+2. **Structure and expressions**: `just --summary` matches the intended recipe set;
+   `just --evaluate` resolves all variables without error
+3. **What users see**: `just --list` shows a clear doc comment for every public recipe, and
+   no `_`-prefixed `[private]` recipe leaks into the list
+4. **Consistency**: naming and grouping follow established project patterns; parameters
+   have sensible defaults where appropriate
