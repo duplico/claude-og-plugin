@@ -12,10 +12,27 @@ Configuration via environment (set in project or user settings.json):
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 
 DEFAULT_PROTECTED = "main,master,develop,default"
+
+# git subcommands that cannot push or change branch state, regardless of what
+# path arguments they carry (e.g. `git show HEAD:bin/og-push` is not a push).
+READ_ONLY_SUBCOMMANDS = {
+    "show", "log", "diff", "cat-file", "ls-tree", "ls-files",
+    "rev-parse", "status", "blame",
+}
+
+# Global git options that take their value as a separate following token
+# (`-C <path>`, `-c key=val`). `--git-dir=<path>` and similar carry their
+# value inline in one token and need no special handling.
+_GLOBAL_OPTS_WITH_SEPARATE_VALUE = {"-C", "-c"}
+
+_SHELL_OPERATORS = {"&&", "||", ";", "|"}
+
+_FORCE_FLAGS = {"-f", "--force", "--force-with-lease"}
 
 
 def protected_branches() -> list[str]:
@@ -23,18 +40,112 @@ def protected_branches() -> list[str]:
     return [b.strip() for b in raw.split(",") if b.strip()]
 
 
-def dangerous_patterns(branches: list[str]) -> list[tuple[str, str]]:
-    alt = "|".join(re.escape(b) for b in branches)
-    return [
-        (rf"\bgit\b.*\bpush\b.*\s({alt})\b", "push to protected branch"),
-        (rf"\bgit\b.*\bpush\b.*--force\b.*\s({alt})\b", "force push to protected branch"),
-        (rf"\bgit\b.*\bpush\b.*\s-f\b.*\s({alt})\b", "force push to protected branch"),
-        (rf"\bgit\b.*\bpush\b.*--force-with-lease\b.*\s({alt})\b", "force push to protected branch"),
-        (rf"\bgit\b.*\bpush\b.*\s({alt})\b.*--force", "force push to protected branch"),
-        (rf"\bgit\b.*\bpush\b.*\s({alt})\b.*\s-f\b", "force push to protected branch"),
-        (rf"\bgit\b.*\bbranch\b.*\s-[dD]\s+({alt})\b", "delete protected branch"),
-        (rf"\bgit\b.*\breset\b.*--hard.*origin/({alt})", "hard reset to protected branch"),
-    ]
+def _tokenize(command: str) -> list[str]:
+    try:
+        return shlex.split(command)
+    except ValueError:
+        # Unbalanced quotes -- fall back to a naive split rather than failing closed.
+        return command.split()
+
+
+def git_invocations(command: str):
+    """Yield (subcommand, rest_tokens) for each top-level `git <subcommand> ...`
+    invocation in the command, skipping git's global options to find the
+    subcommand token itself. `rest_tokens` runs up to the next shell operator
+    (&&, ||, ;, |) or end of command.
+    """
+    tokens = _tokenize(command)
+    n = len(tokens)
+    i = 0
+    while i < n:
+        if tokens[i] != "git":
+            i += 1
+            continue
+        j = i + 1
+        while j < n and tokens[j] not in _SHELL_OPERATORS and tokens[j].startswith("-"):
+            if tokens[j] in _GLOBAL_OPTS_WITH_SEPARATE_VALUE and j + 1 < n:
+                j += 2
+            else:
+                j += 1
+        if j >= n or tokens[j] in _SHELL_OPERATORS:
+            i = j
+            continue
+        subcommand = tokens[j]
+        k = j + 1
+        rest = []
+        while k < n and tokens[k] not in _SHELL_OPERATORS:
+            rest.append(tokens[k])
+            k += 1
+        yield subcommand, rest
+        i = k
+
+
+def _matches_protected(token: str, branches: list[str]) -> bool:
+    """True if a positional argument names a protected branch: as a bare
+    branch name, a `<remote>/<branch>` ref, or the destination side of a
+    `src:dst` refspec."""
+    candidate = token.split(":")[-1]
+    if candidate in branches:
+        return True
+    if "/" in candidate and candidate.rsplit("/", 1)[-1] in branches:
+        return True
+    return False
+
+
+def _positionals(tokens: list[str]) -> list[str]:
+    return [t for t in tokens if not t.startswith("-")]
+
+
+def _check_push(rest: list[str], branches: list[str]) -> str | None:
+    if not any(_matches_protected(t, branches) for t in _positionals(rest)):
+        return None
+    force = any(t in _FORCE_FLAGS or t.startswith("--force-with-lease=") for t in rest)
+    return "force push to protected branch" if force else "push to protected branch"
+
+
+def _check_branch_delete(rest: list[str], branches: list[str]) -> str | None:
+    if not any(t in ("-d", "-D", "--delete") for t in rest):
+        return None
+    if any(_matches_protected(t, branches) for t in _positionals(rest)):
+        return "delete protected branch"
+    return None
+
+
+def _check_hard_reset(rest: list[str], branches: list[str]) -> str | None:
+    if "--hard" not in rest:
+        return None
+    if any(_matches_protected(t, branches) for t in _positionals(rest)):
+        return "hard reset to protected branch"
+    return None
+
+
+def check_dangerous_git(command: str, branches: list[str]) -> str | None:
+    """Return a reason string if any git invocation in `command` would push,
+    delete, or hard-reset a protected branch; None otherwise."""
+    for subcommand, rest in git_invocations(command):
+        if subcommand in READ_ONLY_SUBCOMMANDS:
+            continue
+        if subcommand == "push":
+            reason = _check_push(rest, branches)
+        elif subcommand == "branch":
+            reason = _check_branch_delete(rest, branches)
+        elif subcommand == "reset":
+            reason = _check_hard_reset(rest, branches)
+        else:
+            reason = None
+        if reason:
+            return reason
+    return None
+
+
+def has_bare_push(command: str) -> bool:
+    """True if the command contains a `git push` invocation with no explicit
+    remote/branch/refspec argument -- i.e. one whose target depends on the
+    current branch."""
+    for subcommand, rest in git_invocations(command):
+        if subcommand == "push" and not _positionals(rest):
+            return True
+    return False
 
 
 def get_current_branch(cwd: str | None = None) -> str | None:
@@ -56,10 +167,7 @@ def extract_git_working_dir(command: str) -> str | None:
 
 
 def is_push_on_protected_branch(command: str, branches: list[str]) -> bool:
-    if not re.search(r"\bgit\b.*\bpush\b", command, re.IGNORECASE):
-        return False
-    # Explicit "push <remote> <branch>" is handled by the pattern check
-    if re.search(r"\bpush\b\s+(?:-\S+\s+)*(\S+)\s+(\S+)", command):
+    if not has_bare_push(command):
         return False
     cwd = extract_git_working_dir(command)
     current = get_current_branch(cwd)
@@ -80,10 +188,10 @@ def main():
     command = input_data.get("tool_input", {}).get("command", "")
     branches = protected_branches()
 
-    for pattern, reason in dangerous_patterns(branches):
-        if re.search(pattern, command, re.IGNORECASE):
-            print(
-                f"""BLOCKED: Dangerous git operation detected ({reason}).
+    reason = check_dangerous_git(command, branches)
+    if reason:
+        print(
+            f"""BLOCKED: Dangerous git operation detected ({reason}).
 
 Protected branches: {', '.join(branches)}
 
@@ -93,9 +201,9 @@ first, then push to that branch.
 To change which branches are protected, set OG_PROTECTED_BRANCHES.
 To disable this guard, set OG_BRANCH_GUARD_OFF=1.
 If you believe this is a false positive, ask the user for guidance.""",
-                file=sys.stderr,
-            )
-            sys.exit(2)
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     if is_push_on_protected_branch(command, branches):
         current = get_current_branch()
