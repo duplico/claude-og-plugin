@@ -22,64 +22,17 @@ the installed version instead:
 - **`WebFetch https://just.systems/man/en/print.html`** -- the full single-page justfile
   language manual (settings, functions, attributes, modules) for depth beyond the changelog.
 
-## Organizational Best Practices
+## Naming and Structure
 
-### Hierarchical Recipe Naming
-
-Use colons or hyphens to express hierarchies:
-
-```just
-# Database operations
-db-migrate:
-db-seed:
-db-reset: db-migrate db-seed
-
-# Docker operations  
-docker-build:
-docker-push:
-docker-deploy: docker-build docker-push
-
-# Or with modules for larger projects
-mod db
-mod docker
-```
-
-### Recipe Documentation
-
-Every public recipe MUST have a documentation comment:
+Group related recipes with hyphenated hierarchical names (`db-migrate`, `db-reset`); for
+larger projects, split a group into its own file and pull it in with `mod db` (requires a
+matching `db.just` or `db/mod.just` to exist). Order settings, variables, a default recipe,
+public recipes grouped and doc-commented, then `_`-prefixed `[private]` helpers last:
 
 ```just
-# Build the application for production
-build:
-    cargo build --release
-
-# Run tests with optional filter
-# Usage: just test [FILTER]
-test FILTER="":
-    cargo test {{FILTER}}
-```
-
-### Consistent Argument Patterns
-
-- Use lowercase with underscores for parameters: `output_dir`, `target_env`
-- Provide sensible defaults when possible
-- Use variadic parameters (*ARGS) for passthrough to underlying tools
-- Document non-obvious parameters in the recipe comment
-
-### File Organization
-
-1. Settings at the top
-2. Variables next
-3. Default/help recipe
-4. Public recipes grouped by function
-5. Private helper recipes at the bottom (prefixed with _)
-
-```just
-# Settings
 set shell := ["bash", "-cu"]
-set dotenv-load
+set dotenv-load := true
 
-# Variables
 version := "1.0.0"
 build_dir := "dist"
 
@@ -87,21 +40,21 @@ build_dir := "dist"
 default:
     @just --list
 
-# === Build ===
+# === Database ===
 
-# Build for development
-build-dev:
+# Run pending migrations
+db-migrate:
     ...
 
-# Build for production
-build-prod:
+# Reset the database
+db-reset: db-migrate
     ...
 
 # === Test ===
 
-# Run all tests
-test:
-    ...
+# Run tests, optionally filtered: just test [FILTER]
+test FILTER="":
+    cargo test {{ FILTER }}
 
 # === Private Helpers ===
 
@@ -109,6 +62,13 @@ test:
 _ensure-deps:
     ...
 ```
+
+## Argument Patterns
+
+- Use lowercase with underscores for parameters: `output_dir`, `target_env`
+- Provide sensible defaults when possible
+- Use variadic parameters (`*ARGS`) for passthrough to underlying tools
+- Document non-obvious parameters in the recipe comment
 
 ## Quality Standards (verify before finalizing)
 
