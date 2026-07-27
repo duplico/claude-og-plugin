@@ -161,17 +161,25 @@ def get_current_branch(cwd: str | None = None) -> str | None:
     return None
 
 
-def extract_git_working_dir(command: str) -> str | None:
-    match = re.search(r"\bgit\b.*-C\s+(\S+)", command)
-    return match.group(1) if match else None
+def resolve_working_dir(command: str) -> str | None:
+    """Best-effort working directory the command runs `git` from: a leading
+    `cd <path> &&`/`;`, else a `-C <path>` global git option, else None
+    (meaning: use the hook's own cwd). A `cd` with no path means $HOME.
 
-
-def is_push_on_protected_branch(command: str, branches: list[str]) -> bool:
-    if not has_bare_push(command):
-        return False
-    cwd = extract_git_working_dir(command)
-    current = get_current_branch(cwd)
-    return bool(current and current in branches)
+    Callers pass the result straight to get_current_branch(), which already
+    swallows any subprocess failure (bad path, not a git repo) and returns
+    None -- so an unresolvable or non-repo directory fails open here rather
+    than blocking on a guess.
+    """
+    tokens = _tokenize(command)
+    if tokens and tokens[0] == "cd":
+        if len(tokens) >= 2 and tokens[1] not in _SHELL_OPERATORS:
+            return os.path.expanduser(tokens[1])
+        return os.path.expanduser("~")
+    match = re.search(r"\bgit\b.*?-C\s+(\S+)", command)
+    if match:
+        return os.path.expanduser(match.group(1).strip("'\""))
+    return None
 
 
 def main():
@@ -205,19 +213,21 @@ If you believe this is a false positive, ask the user for guidance.""",
         )
         sys.exit(2)
 
-    if is_push_on_protected_branch(command, branches):
-        current = get_current_branch()
-        print(
-            f"""BLOCKED: Attempting to push while on protected branch '{current}'.
+    if has_bare_push(command):
+        cwd = resolve_working_dir(command)
+        current = get_current_branch(cwd)
+        if current and current in branches:
+            print(
+                f"""BLOCKED: Attempting to push while on protected branch '{current}'.
 
 Create a feature branch first:
   git checkout -b feature/your-feature-name
   git push -u origin feature/your-feature-name
 
 Protected branches: {', '.join(branches)}""",
-            file=sys.stderr,
-        )
-        sys.exit(2)
+                file=sys.stderr,
+            )
+            sys.exit(2)
 
     sys.exit(0)
 
