@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
 Git branch protection hook (og plugin).
-Blocks dangerous git operations that could affect protected branches.
+Blocks dangerous git operations that could affect protected branches, and
+blocks pull-request merges (OG-0: PRs are merged by a human).
 
 Configuration via environment (set in project or user settings.json):
   OG_PROTECTED_BRANCHES   Comma-separated branch names to protect.
                           Default: main,master,develop,default
+  OG_ALLOW_MERGE          Set truthy to disable only the PR-merge rules.
   OG_BRANCH_GUARD_OFF     Set truthy to disable this guard entirely.
 """
 
@@ -182,6 +184,25 @@ def resolve_working_dir(command: str) -> str | None:
     return None
 
 
+def merge_patterns() -> list[tuple[str, str]]:
+    return [
+        (r"\bgh\s+pr\s+merge\b", "gh pr merge"),
+        (r"\bgh\b.*\bapi\b.*/pulls/\d+/merge\b", "gh api PR-merge endpoint"),
+    ]
+
+
+MERGE_BLOCK_MESSAGE = """BLOCKED: Pull request merge detected (OG-0: Never merge PRs).
+
+Pull requests are merged by a human, not an agent -- this includes enabling
+auto-merge, since that merges the PR without further human action.
+
+When your changes are ready, tell the user the PR is ready for human merge.
+Do not merge it yourself, in any form.
+
+To disable this specific rule, set OG_ALLOW_MERGE=1.
+To disable all git-branch-guard checks, set OG_BRANCH_GUARD_OFF=1."""
+
+
 def main():
     if os.environ.get("OG_BRANCH_GUARD_OFF"):
         sys.exit(0)
@@ -195,6 +216,12 @@ def main():
 
     command = input_data.get("tool_input", {}).get("command", "")
     branches = protected_branches()
+
+    if not os.environ.get("OG_ALLOW_MERGE"):
+        for pattern, _ in merge_patterns():
+            if re.search(pattern, command, re.IGNORECASE):
+                print(MERGE_BLOCK_MESSAGE, file=sys.stderr)
+                sys.exit(2)
 
     reason = check_dangerous_git(command, branches)
     if reason:
