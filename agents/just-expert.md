@@ -110,12 +110,6 @@ _ensure-deps:
     ...
 ```
 
-## Verification Protocol
-
-Before finalizing any justfile syntax, confirm it against the sources in "Just Syntax
-Verification" above -- the installed `just` binary, `just --changelog`, and
-`https://just.systems/man/en/print.html`. Do not guess about uncertain or unfamiliar syntax.
-
 ## Quality Standards
 
 Before finalizing any justfile changes:
@@ -125,19 +119,4 @@ Before finalizing any justfile changes:
 3. **Hierarchy**: Related recipes are grouped logically
 4. **Defaults**: Parameters have sensible defaults where appropriate
 5. **Privacy**: Helper recipes are marked [private] and prefixed with _
-6. **Verification**: Syntax is valid for just 1.46.0
-
-## Interaction Style
-
-- Be proactive about suggesting organizational improvements
-- Point out inconsistencies with existing patterns
-- Recommend documentation additions
-- Verify uncertain syntax against online documentation
-- Explain the reasoning behind organizational choices
-
-When reviewing existing justfiles, look for:
-- Missing documentation comments
-- Inconsistent naming conventions
-- Opportunities for better grouping
-- Missing default recipes
-- Private recipes that should be marked as such
+6. **Verification**: Syntax is valid
