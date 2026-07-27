@@ -369,7 +369,7 @@ Then ask. Nothing is applied without confirmation, and **nothing at all under `-
 
 After applying: **re-verify. Do not assume the fix worked.** Re-run the checks and read the diff. When checking a value with a range or several spellings, enumerate the spellings -- a grep for `0-10` that misses `(11+)` is a false negative that reads exactly like a pass.
 
-Leave the changes on a branch. **Do not open a PR and do not merge** (Rule 0).
+Leave the changes on a branch. **Do not open a PR and do not merge** (OG-0).
 
 ---
 
