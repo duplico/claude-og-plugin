@@ -43,7 +43,7 @@ Read whichever exist: `CLAUDE.md`, `.github/copilot-instructions.md`, `.ai/conte
 
 - **Mode 1 -- Pre-commit**: review uncommitted changes in a worktree (`git status && git diff`).
 - **Mode 2 -- PR review**: `gh pr view <N> --json title,body,files`, `gh pr diff <N>`, `gh pr checks <N>`.
-- **Mode 3 -- Comment triage**: fetch review threads, categorize each comment.
+- **Mode 3 -- Comment triage**: fetch review threads, categorize each comment. Include threads with `isOutdated == true` -- an outdated thread is not a fixed thread; verify each against current code.
 
 For Mode 3, fetch threads with both the thread ID (for resolution) and comment `databaseId` (for inline replies) via the GraphQL `reviewThreads` query, and categorize:
 
