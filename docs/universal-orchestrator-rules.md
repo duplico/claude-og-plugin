@@ -48,7 +48,7 @@ Subagent output files can be 500KB+. Reading them will flood your context window
 
 ### OG-4. Reply Inline to PR Comments -- and Resolve the Thread
 
-When subagents address review comments, they must **reply and resolve the thread together** on GitHub, comment by comment. A comment is not addressed until its thread is resolved; a "Fixed in {SHA}" reply left on a still-open thread does not count. Use the coupled helper so the reply and the resolution happen in one call:
+When subagents address review comments, they must **reply and resolve the thread together** on GitHub, comment by comment. A comment is not addressed until its thread is resolved, and an outdated thread is not a resolved one: convergence means zero threads with `isResolved == false`, outdated included, each re-verified against current code before it is replied to and resolved (or left open as a decline/question). A "Fixed in {SHA}" reply left on a still-open thread does not count. Use the coupled helper so the reply and the resolution happen in one call:
 
 ```bash
 og-pr-reply-resolve {OWNER}/{REPO} {PR} {COMMENT_ID} \

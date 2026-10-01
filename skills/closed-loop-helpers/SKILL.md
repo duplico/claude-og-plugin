@@ -17,7 +17,7 @@ These ship with the og plugin and are on your PATH. (If a bare call fails, they'
 | Script | Purpose |
 |---|---|
 | `closed-loop-init <owner>/<repo> <PR> [--round-limit N] [--mode attended\|unattended]` | Create session dir + config.json, add the `ai:closed-loop` label. Prints session JSON. |
-| `closed-loop-status <owner>/<repo> <PR>` | PR state as JSON: state, labels, unresolved thread count, CI rollup, latest comment author/AI-ness. |
+| `closed-loop-status <owner>/<repo> <PR>` | PR state as JSON: state, labels, unresolved thread count (`unresolved_review_threads`, outdated included) with the outdated subset (`unresolved_outdated_review_threads`), CI rollup, latest comment author/AI-ness. |
 | `closed-loop-comment <owner>/<repo> <PR> "<msg>" [--session UUID] [--model MODEL]` | Post a comment with the `<!-- AI:closed-loop:UUID -->` marker and AI disclosure. |
 | `closed-loop-resolve-thread <owner>/<repo> <PR> <THREAD_ID>` | Resolve one review thread by ID. Never use `--all` in automation. |
 | `closed-loop-escalate <owner>/<repo> <PR> <reason_code> "<msg>" [--session UUID] [--round N]` | Post an AWAITING_HUMAN escalation. |
@@ -36,7 +36,7 @@ On any stop condition: `closed-loop-escalate`, then exit and report to the human
 
 ## Round Workflow (summary)
 
-1. `closed-loop-status` → assess CI + unresolved threads.
+1. `closed-loop-status` → assess CI + unresolved threads. Converged means `unresolved_review_threads == 0`; outdated threads count, and each must be re-verified against current code, then replied to and resolved (or left open if a decline/question).
 2. Delegate review → categorize comments (A/B/C/D), capturing thread + comment IDs.
 3. Check stop conditions → escalate if met.
 4. If no Category A and CI green → adversarial pre-merge review (Opus). PASS → `merge_ready`.

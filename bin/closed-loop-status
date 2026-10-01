@@ -8,7 +8,8 @@
 # Output includes:
 # - PR state (open/closed/merged)
 # - Whether ai:closed-loop label is present
-# - Count of unresolved review threads
+# - Count of unresolved review threads (outdated threads included; an outdated
+#   thread is not a fixed thread), and how many of those are outdated
 # - CI check status
 # - Latest comment timestamps
 #
@@ -107,8 +108,11 @@ PR_DATA=$(echo "$RESULT" | jq '.data.repository.pullRequest')
 LABELS=$(echo "$PR_DATA" | jq '[.labels.nodes[].name]')
 HAS_CLOSED_LOOP_LABEL=$(echo "$LABELS" | jq 'any(. == "ai:closed-loop")')
 
-# Count unresolved, non-outdated review threads
-UNRESOLVED_THREADS=$(echo "$PR_DATA" | jq '[.reviewThreads.nodes[] | select(.isResolved == false and .isOutdated == false)] | length')
+# Count unresolved review threads. Outdated threads count: a diff change under a
+# thread does not mean the feedback was addressed. The outdated subset is reported
+# separately so callers know to re-verify those against current code.
+UNRESOLVED_THREADS=$(echo "$PR_DATA" | jq '[.reviewThreads.nodes[] | select(.isResolved == false)] | length')
+UNRESOLVED_OUTDATED_THREADS=$(echo "$PR_DATA" | jq '[.reviewThreads.nodes[] | select(.isResolved == false and .isOutdated == true)] | length')
 
 # Get CI status
 CI_STATE=$(echo "$PR_DATA" | jq -r '.commits.nodes[0].commit.statusCheckRollup.state // "UNKNOWN"')
@@ -140,6 +144,7 @@ jq -n \
     --argjson labels "$LABELS" \
     --argjson has_closed_loop "$HAS_CLOSED_LOOP_LABEL" \
     --argjson unresolved_threads "$UNRESOLVED_THREADS" \
+    --argjson unresolved_outdated_threads "$UNRESOLVED_OUTDATED_THREADS" \
     --arg ci_state "$CI_STATE" \
     --arg latest_comment_at "$LATEST_COMMENT_AT" \
     --arg latest_comment_author "$LATEST_COMMENT_AUTHOR" \
@@ -156,6 +161,7 @@ jq -n \
         labels: $labels,
         has_closed_loop_label: $has_closed_loop,
         unresolved_review_threads: $unresolved_threads,
+        unresolved_outdated_review_threads: $unresolved_outdated_threads,
         ci_state: $ci_state,
         latest_comment: {
             at: $latest_comment_at,

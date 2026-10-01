@@ -49,6 +49,8 @@ og-pr-reply-resolve {owner}/{repo} {N} {comment_id} \
 - Every reply cites the specific commit SHA that fixed the issue (or, for a false positive, explains WHY with evidence; for a deferral, cites the follow-up issue number).
 - Resolve **only** threads you have replied to, one specific thread at a time. Never bulk-resolve -- it can hide feedback opened since you last looked.
 
+- **An outdated thread is not a fixed thread.** GitHub marks a thread outdated when the diff under it changes, not when the feedback is addressed. Convergence means zero threads with `isResolved == false`, outdated included. Re-verify each outdated thread against current code, then reply and resolve it (or leave it open if it is a decline or question).
+
 ## Review Comment Categories
 
 | Category | Meaning | Action |

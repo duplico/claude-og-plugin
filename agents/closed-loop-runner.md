@@ -134,8 +134,8 @@ Two things this deliberately preserves:
 
 Repeat until a stop condition is met:
 
-1. **Check PR state**: `closed-loop-status {repo} {pr}` (CI status, unresolved threads, labels).
-2. **Delegate review**: launch the `reviewer_agent` to enumerate and categorize unresolved comments (A: fix now, B: defer/follow-up issue, C: design decision, D: disagree). Ask it to include thread IDs and comment IDs.
+1. **Check PR state**: `closed-loop-status {repo} {pr}` (CI status, unresolved threads -- outdated included, reported separately as `unresolved_outdated_review_threads` -- labels). Convergence is `unresolved_review_threads == 0`.
+2. **Delegate review**: launch the `reviewer_agent` to enumerate and categorize unresolved comments, including those on outdated threads, which must be re-verified against current code (A: fix now, B: defer/follow-up issue, C: design decision, D: disagree). Ask it to include thread IDs and comment IDs.
 3. **Check stop conditions**:
 
    | Condition | Detection | Reason code |
